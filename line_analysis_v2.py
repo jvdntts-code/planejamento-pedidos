@@ -1,7 +1,12 @@
+import base64
 import io
+import json
 import re
 import textwrap
 import unicodedata
+import urllib.error
+import urllib.parse
+import urllib.request
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -65,6 +70,10 @@ STATUS_COLOR_RANGE = [
 
 ABC_COLOR_DOMAIN = ["A", "B", "C"]
 ABC_COLOR_RANGE = ["#16A34A", "#2563EB", "#94A3B8"]
+
+PERSISTENT_CRITERIA_FILE = "saved_line_criteria.json"
+DEFAULT_GITHUB_REPO = "jvdntts-code/planejamento-pedidos"
+DEFAULT_GITHUB_BRANCH = "main"
 
 DEFAULT_CRITERIA = {
     "abc_period": 90,
@@ -1208,6 +1217,128 @@ def formatted_xlsx_bytes(
     return output.getvalue()
 
 
+def _get_secret(name, default=""):
+    try:
+        return st.secrets[name] if name in st.secrets else default
+    except Exception:
+        return default
+
+
+def _github_persistence_settings():
+    repo = _get_secret("GITHUB_REPO", DEFAULT_GITHUB_REPO)
+    branch = _get_secret("GITHUB_BRANCH", DEFAULT_GITHUB_BRANCH)
+    token = _get_secret("GITHUB_TOKEN", "")
+    return str(repo), str(branch), str(token)
+
+
+def _github_headers(token=""):
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "planejamento-pedidos-streamlit",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _github_read_config():
+    repo, branch, token = _github_persistence_settings()
+    encoded_path = urllib.parse.quote(PERSISTENT_CRITERIA_FILE, safe="/")
+    encoded_branch = urllib.parse.quote(branch, safe="")
+    url = (
+        f"https://api.github.com/repos/{repo}/contents/{encoded_path}"
+        f"?ref={encoded_branch}"
+    )
+    request = urllib.request.Request(
+        url,
+        headers=_github_headers(token),
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None, None
+        return None, f"GitHub respondeu HTTP {exc.code} ao carregar o padrão."
+    except Exception as exc:
+        return None, f"Não foi possível carregar o padrão permanente: {exc}"
+
+    try:
+        content = base64.b64decode(payload["content"]).decode("utf-8")
+        saved = json.loads(content)
+        merged = {**DEFAULT_CRITERIA, **saved}
+        if _criteria_errors(merged):
+            return None, "O padrão salvo no GitHub está inválido e foi ignorado."
+        return merged, None
+    except Exception as exc:
+        return None, f"Não foi possível interpretar o padrão salvo: {exc}"
+
+
+def _github_save_config(criteria):
+    repo, branch, token = _github_persistence_settings()
+    if not token:
+        return (
+            False,
+            "Falta configurar GITHUB_TOKEN nos Secrets do Streamlit para gravar no GitHub.",
+        )
+
+    encoded_path = urllib.parse.quote(PERSISTENT_CRITERIA_FILE, safe="/")
+    encoded_branch = urllib.parse.quote(branch, safe="")
+    url = f"https://api.github.com/repos/{repo}/contents/{encoded_path}"
+
+    sha = None
+    get_url = f"{url}?ref={encoded_branch}"
+    get_request = urllib.request.Request(
+        get_url,
+        headers=_github_headers(token),
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(get_request, timeout=10) as response:
+            existing = json.loads(response.read().decode("utf-8"))
+            sha = existing.get("sha")
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            return False, f"GitHub respondeu HTTP {exc.code} ao localizar o arquivo de padrão."
+    except Exception as exc:
+        return False, f"Não foi possível localizar o padrão atual no GitHub: {exc}"
+
+    content = json.dumps(criteria, ensure_ascii=False, indent=2, sort_keys=True)
+    payload = {
+        "message": "Atualiza critérios padrão da análise de linha",
+        "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
+        "branch": branch,
+    }
+    if sha:
+        payload["sha"] = sha
+
+    body = json.dumps(payload).encode("utf-8")
+    put_request = urllib.request.Request(
+        url,
+        data=body,
+        headers={
+            **_github_headers(token),
+            "Content-Type": "application/json",
+        },
+        method="PUT",
+    )
+    try:
+        with urllib.request.urlopen(put_request, timeout=15) as response:
+            response.read()
+        return True, "Critérios salvos como padrão permanente."
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read().decode("utf-8")).get("message", "")
+        except Exception:
+            detail = ""
+        suffix = f" — {detail}" if detail else ""
+        return False, f"GitHub respondeu HTTP {exc.code} ao salvar{suffix}."
+    except Exception as exc:
+        return False, f"Não foi possível salvar o padrão permanente: {exc}"
+
+
 def _criteria_errors(criteria):
     errors = []
     if int(criteria["abc_period"]) < 1:
@@ -1256,20 +1387,25 @@ def render_analise_linha():
         key="nome_analise_linha_v2",
     )
 
-    if "line_criteria_saved" not in st.session_state:
-        st.session_state["line_criteria_saved"] = DEFAULT_CRITERIA.copy()
+    if "line_criteria_persistent_loaded" not in st.session_state:
+        persistent_criteria, persistent_error = _github_read_config()
+        loaded = persistent_criteria or DEFAULT_CRITERIA.copy()
+        st.session_state["line_criteria_saved"] = {
+            **DEFAULT_CRITERIA,
+            **loaded,
+        }
+        st.session_state["line_criteria_active"] = st.session_state["line_criteria_saved"].copy()
+        st.session_state["line_criteria_persistent_loaded"] = True
+        if persistent_error:
+            st.session_state["line_criteria_feedback"] = persistent_error
     else:
         st.session_state["line_criteria_saved"] = {
             **DEFAULT_CRITERIA,
-            **st.session_state["line_criteria_saved"],
+            **st.session_state.get("line_criteria_saved", {}),
         }
-
-    if "line_criteria_active" not in st.session_state:
-        st.session_state["line_criteria_active"] = st.session_state["line_criteria_saved"].copy()
-    else:
         st.session_state["line_criteria_active"] = {
             **DEFAULT_CRITERIA,
-            **st.session_state["line_criteria_active"],
+            **st.session_state.get("line_criteria_active", {}),
         }
 
     if _criteria_errors(st.session_state["line_criteria_saved"]):
@@ -1306,9 +1442,12 @@ def render_analise_linha():
         if errors:
             st.session_state["line_criteria_feedback"] = " | ".join(errors)
             return
+
         st.session_state["line_criteria_active"] = current.copy()
-        st.session_state["line_criteria_saved"] = current.copy()
-        st.session_state["line_criteria_feedback"] = "Critérios salvos como padrão da sessão."
+        ok, message = _github_save_config(current)
+        if ok:
+            st.session_state["line_criteria_saved"] = current.copy()
+        st.session_state["line_criteria_feedback"] = message
 
     def reset_criteria():
         st.session_state["line_criteria_active"] = DEFAULT_CRITERIA.copy()
@@ -1448,7 +1587,7 @@ def render_analise_linha():
             st.caption("Acima do limite de ALTO = EXCESSO.")
 
         st.button(
-            "💾 Salvar como padrão da sessão",
+            "💾 Salvar como padrão permanente",
             use_container_width=True,
             on_click=save_criteria,
         )
@@ -1458,9 +1597,15 @@ def render_analise_linha():
             on_click=reset_criteria,
         )
 
+        _, _, github_token = _github_persistence_settings()
+        if github_token:
+            st.caption("✅ Salvamento permanente habilitado via GitHub.")
+        else:
+            st.caption("ℹ️ Para persistir após reboot, configure GITHUB_TOKEN nos Secrets do Streamlit.")
+
         feedback = st.session_state.get("line_criteria_feedback", "")
         if feedback:
-            if "sucesso" in feedback.lower() or "salvos" in feedback.lower() or "restaurados" in feedback.lower():
+            if "salvos como padrão permanente" in feedback.lower() or "restaurados" in feedback.lower():
                 st.success(feedback)
             else:
                 st.warning(feedback)
