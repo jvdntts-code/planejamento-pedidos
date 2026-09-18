@@ -10,25 +10,128 @@ import streamlit as st
 from line_analysis_v2 import render_analise_linha
 from tasks_module import render_tasks
 
-st.set_page_config(page_title="Planejamento de Pedido", page_icon="📦", layout="wide")
+st.set_page_config(page_title="NEXO | by JVN", page_icon="◆", layout="wide")
 
 st.markdown("""
 <style>
 .block-container {padding-top: 1rem; padding-bottom: 3rem;}
 div[data-testid="metric-container"] {border:1px solid rgba(128,128,128,.25); border-radius:12px; padding:12px;}
 .small {font-size:.88rem; opacity:.78}
+.nexo-brand {
+    border: 1px solid rgba(128,128,128,.22);
+    border-radius: 16px;
+    padding: 16px 16px 14px 16px;
+    margin-bottom: 14px;
+    background: rgba(37,99,235,.06);
+}
+.nexo-title {
+    font-size: 1.65rem;
+    line-height: 1;
+    font-weight: 800;
+    letter-spacing: .08em;
+}
+.nexo-by {
+    font-size: .72rem;
+    opacity: .65;
+    margin-left: 4px;
+    letter-spacing: .06em;
+}
+.nexo-subtitle {
+    font-size: .78rem;
+    opacity: .72;
+    margin-top: 8px;
+}
+.nexo-hero {
+    border: 1px solid rgba(128,128,128,.22);
+    border-radius: 18px;
+    padding: 26px 28px;
+    margin-bottom: 20px;
+    background: linear-gradient(135deg, rgba(37,99,235,.09), rgba(15,118,110,.05));
+}
+.nexo-hero h1 {margin: 0; font-size: 2.2rem; letter-spacing: .06em;}
+.nexo-hero p {margin: 8px 0 0 0; opacity: .72;}
 </style>
 """, unsafe_allow_html=True)
 
-st.sidebar.markdown("## Módulos")
+st.sidebar.markdown(
+    """
+    <div class="nexo-brand">
+        <div><span class="nexo-title">NEXO</span><span class="nexo-by">by JVN</span></div>
+        <div class="nexo-subtitle">Gestão • Planejamento • Inteligência</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.sidebar.markdown("### Módulos")
 pagina = st.sidebar.radio(
     "Escolha a área",
-    ["📦 Planejamento de Pedido", "📊 Análise de Linha", "✅ Minhas Tarefas"],
+    [
+        "🏠 Início",
+        "📦 Planejamento de Pedido",
+        "📊 Análise de Linha",
+        "🔎 Pendências",
+        "🧾 Gestão de Pedidos",
+        "✅ Minhas Tarefas",
+    ],
     label_visibility="collapsed",
 )
 
+def render_inicio():
+    st.markdown(
+        """
+        <div class="nexo-hero">
+            <h1>NEXO <span style="font-size:.9rem;opacity:.55">by JVN</span></h1>
+            <p>Gestão • Planejamento • Inteligência</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.subheader("Sua central de trabalho")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.info("📦 **Planejamento de Pedido**\n\nCalcule necessidades e gere pedidos com memória de cálculo.")
+    with c2:
+        st.info("📊 **Análise de Linha**\n\nAvalie Curva ABC, cobertura, ruptura, risco, alto e excesso.")
+    with c3:
+        st.info("✅ **Minhas Tarefas**\n\nOrganize pendências pessoais, prazos e prioridades.")
+
+    st.markdown("### Próximos módulos")
+    p1, p2 = st.columns(2)
+    with p1:
+        st.container(border=True).markdown(
+            "🔎 **Pendências**\n\nConfronto de arquivos, divergências, quantidades pendentes e acompanhamento."
+        )
+    with p2:
+        st.container(border=True).markdown(
+            "🧾 **Gestão de Pedidos**\n\nAcompanhamento do pedido desde a emissão até o recebimento e finalização."
+        )
+
+def render_em_construcao(titulo, descricao):
+    st.title(titulo)
+    st.info(descricao)
+    st.caption("Este módulo já está reservado no NEXO e será construído sem interferir nas ferramentas atuais.")
+
+if pagina == "🏠 Início":
+    render_inicio()
+    st.stop()
+
 if pagina == "📊 Análise de Linha":
     render_analise_linha()
+    st.stop()
+
+if pagina == "🔎 Pendências":
+    render_em_construcao(
+        "🔎 Pendências",
+        "Aqui vamos importar e confrontar as pendências, identificar divergências e acompanhar o que continua em aberto.",
+    )
+    st.stop()
+
+if pagina == "🧾 Gestão de Pedidos":
+    render_em_construcao(
+        "🧾 Gestão de Pedidos",
+        "Aqui vamos acompanhar cada pedido, fornecedor, status, previsão, recebimentos e saldo pendente.",
+    )
     st.stop()
 
 if pagina == "✅ Minhas Tarefas":
@@ -36,7 +139,7 @@ if pagina == "✅ Minhas Tarefas":
     st.stop()
 
 st.title("📦 Planejamento Inteligente de Pedido")
-st.caption("Versão baseada na lógica da planilha PLANEJAMENTO_PEDIDO_COM_IMPORTACAO_AUTOMATICA.")
+st.caption("NEXO | Gestão • Planejamento • Inteligência")
 
 REPORT_BRANCHES = ["M1","M6","M11","M12","M13","M21","M22","M23","M25","M26","M27","M28","M29","M35","M39","M40","M31"]
 MANUAL_ORDER_BRANCHES = ["M10","M24","M38","M41","M45"]
