@@ -14,6 +14,13 @@ st.set_page_config(page_title="NEXO | by JVN", page_icon="◆", layout="wide")
 
 st.markdown("""
 <style>
+html, body, .stApp,
+.stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6,
+.stApp p, .stApp label, .stApp button, .stApp input, .stApp textarea,
+.stApp select, .stApp table, .stApp th, .stApp td,
+[data-testid="stSidebar"] {
+    font-family: "Times New Roman", Times, serif !important;
+}
 .block-container {padding-top: 1rem; padding-bottom: 3rem;}
 div[data-testid="metric-container"] {border:1px solid rgba(128,128,128,.25); border-radius:12px; padding:12px;}
 .small {font-size:.88rem; opacity:.78}
