@@ -8,6 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from line_analysis_v2 import render_analise_linha
+from tasks_module import render_tasks
 
 st.set_page_config(page_title="Planejamento de Pedido", page_icon="📦", layout="wide")
 
@@ -22,12 +23,16 @@ div[data-testid="metric-container"] {border:1px solid rgba(128,128,128,.25); bor
 st.sidebar.markdown("## Módulos")
 pagina = st.sidebar.radio(
     "Escolha a área",
-    ["📦 Planejamento de Pedido", "📊 Análise de Linha"],
+    ["📦 Planejamento de Pedido", "📊 Análise de Linha", "✅ Minhas Tarefas"],
     label_visibility="collapsed",
 )
 
 if pagina == "📊 Análise de Linha":
     render_analise_linha()
+    st.stop()
+
+if pagina == "✅ Minhas Tarefas":
+    render_tasks()
     st.stop()
 
 st.title("📦 Planejamento Inteligente de Pedido")
