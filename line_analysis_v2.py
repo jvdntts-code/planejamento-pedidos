@@ -2,7 +2,6 @@ import io
 import re
 import unicodedata
 
-import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -375,30 +374,53 @@ def integer(value):
 
 def _pie_chart(data, category, value, title, value_label="Valor"):
     chart_data = data[[category, value]].copy()
-    chart_data = chart_data[pd.to_numeric(chart_data[value], errors="coerce").fillna(0) > 0].copy()
     chart_data[value] = pd.to_numeric(chart_data[value], errors="coerce").fillna(0)
-    total = float(chart_data[value].sum())
-    chart_data["percentual"] = np.where(total > 0, chart_data[value] / total, 0)
+    chart_data = chart_data[chart_data[value] > 0].copy()
 
-    if chart_data.empty:
+    total = float(chart_data[value].sum())
+    if chart_data.empty or total <= 0:
         st.info("Sem dados para este gráfico.")
         return
 
-    chart = (
-        alt.Chart(chart_data)
-        .mark_arc()
-        .encode(
-            theta=alt.Theta(f"{value}:Q", stack=True),
-            color=alt.Color(f"{category}:N", legend=alt.Legend(title=None, orient="bottom")),
-            tooltip=[
-                alt.Tooltip(f"{category}:N", title=category),
-                alt.Tooltip(f"{value}:Q", title=value_label, format=",.2f"),
-                alt.Tooltip("percentual:Q", title="Participação", format=".1%"),
+    chart_data["percentual"] = chart_data[value] / total
+    chart_data["participacao"] = (chart_data["percentual"] * 100).round(1)
+
+    spec = {
+        "mark": {"type": "arc", "outerRadius": 120},
+        "encoding": {
+            "theta": {
+                "field": value,
+                "type": "quantitative",
+                "stack": True,
+            },
+            "color": {
+                "field": category,
+                "type": "nominal",
+                "legend": {
+                    "title": None,
+                    "orient": "bottom",
+                    "columns": 2,
+                },
+            },
+            "tooltip": [
+                {"field": category, "type": "nominal", "title": category},
+                {"field": value, "type": "quantitative", "title": value_label, "format": ",.2f"},
+                {"field": "participacao", "type": "quantitative", "title": "Participação (%)", "format": ".1f"},
             ],
-        )
-        .properties(title=title, height=360)
+        },
+        "view": {"stroke": None},
+        "title": {
+            "text": title,
+            "anchor": "middle",
+            "fontSize": 16,
+        },
+    }
+
+    st.vega_lite_chart(
+        chart_data,
+        spec,
+        use_container_width=True,
     )
-    st.altair_chart(chart, use_container_width=True)
 
 
 def _card_html(title, value, subtitle=""):
