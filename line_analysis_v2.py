@@ -1141,12 +1141,17 @@ def render_analise_linha():
     if "line_criteria_active" not in st.session_state:
         st.session_state["line_criteria_active"] = st.session_state["line_criteria_saved"].copy()
 
+    if _criteria_errors(st.session_state["line_criteria_saved"]):
+        st.session_state["line_criteria_saved"] = DEFAULT_CRITERIA.copy()
+    if _criteria_errors(st.session_state["line_criteria_active"]):
+        st.session_state["line_criteria_active"] = st.session_state["line_criteria_saved"].copy()
+
     widget_defaults = st.session_state["line_criteria_saved"]
     widget_keys = {
-        "abc_period": "crit_abc_period", "abc_a": "crit_abc_a", "abc_b": "crit_abc_b",
-        "A_ruptura": "crit_A_ruptura", "A_abaixo": "crit_A_abaixo", "A_ok": "crit_A_ok",
-        "B_ruptura": "crit_B_ruptura", "B_abaixo": "crit_B_abaixo", "B_ok": "crit_B_ok", "B_alto": "crit_B_alto",
-        "C_ruptura": "crit_C_ruptura", "C_abaixo": "crit_C_abaixo", "C_ok": "crit_C_ok",
+        "abc_period": "crit3_abc_period", "abc_a": "crit3_abc_a", "abc_b": "crit3_abc_b",
+        "A_ruptura": "crit3_A_ruptura", "A_abaixo": "crit3_A_abaixo", "A_ok": "crit3_A_ok",
+        "B_ruptura": "crit3_B_ruptura", "B_abaixo": "crit3_B_abaixo", "B_ok": "crit3_B_ok", "B_alto": "crit3_B_alto",
+        "C_ruptura": "crit3_C_ruptura", "C_abaixo": "crit3_C_abaixo", "C_ok": "crit3_C_ok",
     }
     for name, key in widget_keys.items():
         if key not in st.session_state:
@@ -1156,16 +1161,28 @@ def render_analise_linha():
         return {name: st.session_state[key] for name, key in widget_keys.items()}
 
     def apply_criteria():
-        st.session_state["line_criteria_active"] = collect_criteria_state()
+        current = collect_criteria_state()
+        errors = _criteria_errors(current)
+        if errors:
+            st.session_state["line_criteria_feedback"] = " | ".join(errors)
+            return
+        st.session_state["line_criteria_active"] = current.copy()
+        st.session_state["line_criteria_feedback"] = "Critérios aplicados com sucesso."
 
     def save_criteria():
         current = collect_criteria_state()
+        errors = _criteria_errors(current)
+        if errors:
+            st.session_state["line_criteria_feedback"] = " | ".join(errors)
+            return
         st.session_state["line_criteria_active"] = current.copy()
         st.session_state["line_criteria_saved"] = current.copy()
+        st.session_state["line_criteria_feedback"] = "Critérios salvos como padrão da sessão."
 
     def reset_criteria():
         st.session_state["line_criteria_active"] = DEFAULT_CRITERIA.copy()
         st.session_state["line_criteria_saved"] = DEFAULT_CRITERIA.copy()
+        st.session_state["line_criteria_feedback"] = "Critérios restaurados para o padrão."
         for name, key in widget_keys.items():
             st.session_state[key] = DEFAULT_CRITERIA[name]
 
@@ -1288,13 +1305,15 @@ def render_analise_linha():
             on_click=reset_criteria,
         )
 
+        feedback = st.session_state.get("line_criteria_feedback", "")
+        if feedback:
+            if "sucesso" in feedback.lower() or "salvos" in feedback.lower() or "restaurados" in feedback.lower():
+                st.success(feedback)
+            else:
+                st.warning(feedback)
+
     criteria = st.session_state["line_criteria_active"].copy()
     period_days = int(criteria["abc_period"])
-    errors = _criteria_errors(criteria)
-    if errors:
-        for error in errors:
-            st.error(error)
-        st.stop()
 
     st.info(
         f"⚙️ **Critérios no menu lateral** — Período único da análise: "
