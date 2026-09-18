@@ -933,9 +933,11 @@ def formatted_xlsx_bytes(
             resumo_ws.cell(4, c).value: c
             for c in range(1, resumo_ws.max_column + 1)
         }
-        if "Valor Alto/Excesso" in header_map:
+        if "Valor Alto/Excesso" in header_map and resumo_ws.max_row >= 5:
             col = get_column_letter(header_map["Valor Alto/Excesso"])
-            resumo_ws[f"{col}5:{col}{resumo_ws.max_row}"].conditional_formatting.add(
+            cell_range = f"{col}5:{col}{resumo_ws.max_row}"
+            resumo_ws.conditional_formatting.add(
+                cell_range,
                 ColorScaleRule(
                     start_type="min",
                     start_color="E2F0D9",
@@ -944,7 +946,7 @@ def formatted_xlsx_bytes(
                     mid_color="FFF2CC",
                     end_type="max",
                     end_color="F4CCCC",
-                )
+                ),
             )
 
     return output.getvalue()
