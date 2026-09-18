@@ -37,6 +37,7 @@ DEFAULT_CRITERIA = {
     "A_ruptura": 30,
     "A_abaixo": 90,
     "A_ok": 180,
+    "A_alto": 240,
     "B_ruptura": 30,
     "B_abaixo": 90,
     "B_ok": 120,
@@ -44,6 +45,7 @@ DEFAULT_CRITERIA = {
     "C_ruptura": 30,
     "C_abaixo": 90,
     "C_ok": 120,
+    "C_alto": 150,
 }
 
 
@@ -214,18 +216,16 @@ def classify_coverage(stock, sales, days, curve, criteria):
     abaixo = float(criteria[f"{curve}_abaixo"])
     ok_max = float(criteria[f"{curve}_ok"])
 
+    alto_max = float(criteria[f"{curve}_alto"])
+
     if coverage < ruptura:
         return "RUPTURA"
     if coverage < abaixo:
-        return "ABAIXO DO RECOMENDADO"
+        return "RISCO DE RUPTURA"
     if coverage <= ok_max:
         return "OK"
-
-    if curve == "B":
-        alto_max = float(criteria["B_alto"])
-        if coverage <= alto_max:
-            return "ALTO"
-
+    if coverage <= alto_max:
+        return "ALTO"
     return "EXCESSO"
 
 
@@ -315,7 +315,7 @@ def build_line_analysis(base, period_days, criteria, long_days):
 
     status_columns = {
         "RUPTURA": "ruptura",
-        "ABAIXO DO RECOMENDADO": "abaixo_recomendado",
+        "RISCO DE RUPTURA": "risco_ruptura",
         "OK": "ok",
         "ALTO": "alto",
         "EXCESSO": "excesso",
@@ -473,7 +473,7 @@ def _friendly_summary(summary, long_days):
             "valor_alto_excesso",
             "valor_parado",
             "ruptura",
-            "abaixo_recomendado",
+            "risco_ruptura",
             "ok",
             "alto",
             "excesso",
@@ -494,7 +494,7 @@ def _friendly_summary(summary, long_days):
         "Valor Alto/Excesso",
         "Valor Parado",
         "Ruptura",
-        "Abaixo Recomend.",
+        "Risco Ruptura",
         "OK",
         "Alto",
         "Excesso",
@@ -635,7 +635,7 @@ def _format_sheet(
 
     status_fills = {
         "RUPTURA": PatternFill("solid", fgColor=LIGHT_RED),
-        "ABAIXO DO RECOMENDADO": PatternFill("solid", fgColor=LIGHT_YELLOW),
+        "RISCO DE RUPTURA": PatternFill("solid", fgColor=LIGHT_YELLOW),
         "OK": PatternFill("solid", fgColor=LIGHT_GREEN),
         "ALTO": PatternFill("solid", fgColor=LIGHT_ORANGE),
         "EXCESSO": PatternFill("solid", fgColor="F8CBAD"),
@@ -762,16 +762,16 @@ def formatted_xlsx_bytes(
         criteria_df = pd.DataFrame({
             "Critério": [
                 "Período único da análise", "Curva A até", "Curva B até",
-                "A - Ruptura até", "A - Abaixo até", "A - OK até",
-                "B - Ruptura até", "B - Abaixo até", "B - OK até", "B - Alto até",
-                "C - Ruptura até", "C - Abaixo até", "C - OK até",
+                "A - Ruptura até", "A - Risco Ruptura até", "A - OK até", "A - Alto até",
+                "B - Ruptura até", "B - Risco Ruptura até", "B - OK até", "B - Alto até",
+                "C - Ruptura até", "C - Risco Ruptura até", "C - OK até", "C - Alto até",
                 "Cobertura/status usam o mesmo período",
             ],
             "Valor": [
                 f"{int(criteria['abc_period'])} dias", f"{criteria['abc_a']:.1f}%", f"{criteria['abc_b']:.1f}%",
-                f"{criteria['A_ruptura']} dias", f"{criteria['A_abaixo']} dias", f"{criteria['A_ok']} dias",
+                f"{criteria['A_ruptura']} dias", f"{criteria['A_abaixo']} dias", f"{criteria['A_ok']} dias", f"{criteria['A_alto']} dias",
                 f"{criteria['B_ruptura']} dias", f"{criteria['B_abaixo']} dias", f"{criteria['B_ok']} dias", f"{criteria['B_alto']} dias",
-                f"{criteria['C_ruptura']} dias", f"{criteria['C_abaixo']} dias", f"{criteria['C_ok']} dias",
+                f"{criteria['C_ruptura']} dias", f"{criteria['C_abaixo']} dias", f"{criteria['C_ok']} dias", f"{criteria['C_alto']} dias",
                 f"{period_days} dias",
             ],
         })
@@ -948,7 +948,7 @@ def formatted_xlsx_bytes(
         ws["A51"].font = Font(color=WHITE, bold=True)
         guide = [
             ("RUPTURA", "Cobertura abaixo do limite definido para a curva."),
-            ("ABAIXO", "Abaixo da faixa recomendada."),
+            ("RISCO RUPTURA", "Cobertura baixa, próxima da faixa de ruptura."),
             ("OK", "Estoque dentro da faixa esperada."),
             ("ALTO / EXCESSO", "Capital acima da faixa de cobertura."),
             ("PARADO", "Saldo positivo sem venda no período."),
@@ -1092,17 +1092,15 @@ def _criteria_errors(criteria):
         errors.append("O período da análise deve ser maior que zero.")
     if not (0 < float(criteria["abc_a"]) < float(criteria["abc_b"]) <= 100):
         errors.append("Os cortes da Curva ABC devem seguir A < B e B ≤ 100%.")
-    for curve in ("A", "C"):
+    for curve in ("A", "B", "C"):
         if not (
             float(criteria[f"{curve}_ruptura"]) < float(criteria[f"{curve}_abaixo"])
-            < float(criteria[f"{curve}_ok"])
+            < float(criteria[f"{curve}_ok"]) < float(criteria[f"{curve}_alto"])
         ):
-            errors.append(f"Curva {curve}: os limites devem crescer na ordem Ruptura < Abaixo < OK.")
-    if not (
-        float(criteria["B_ruptura"]) < float(criteria["B_abaixo"])
-        < float(criteria["B_ok"]) < float(criteria["B_alto"])
-    ):
-        errors.append("Curva B: os limites devem crescer na ordem Ruptura < Abaixo < OK < Alto.")
+            errors.append(
+                f"Curva {curve}: os limites devem crescer na ordem "
+                "Ruptura < Risco Ruptura < OK < Alto."
+            )
     return errors
 
 
@@ -1138,8 +1136,19 @@ def render_analise_linha():
 
     if "line_criteria_saved" not in st.session_state:
         st.session_state["line_criteria_saved"] = DEFAULT_CRITERIA.copy()
+    else:
+        st.session_state["line_criteria_saved"] = {
+            **DEFAULT_CRITERIA,
+            **st.session_state["line_criteria_saved"],
+        }
+
     if "line_criteria_active" not in st.session_state:
         st.session_state["line_criteria_active"] = st.session_state["line_criteria_saved"].copy()
+    else:
+        st.session_state["line_criteria_active"] = {
+            **DEFAULT_CRITERIA,
+            **st.session_state["line_criteria_active"],
+        }
 
     if _criteria_errors(st.session_state["line_criteria_saved"]):
         st.session_state["line_criteria_saved"] = DEFAULT_CRITERIA.copy()
@@ -1148,10 +1157,10 @@ def render_analise_linha():
 
     widget_defaults = st.session_state["line_criteria_saved"]
     widget_keys = {
-        "abc_period": "crit4_abc_period", "abc_a": "crit4_abc_a", "abc_b": "crit4_abc_b",
-        "A_ruptura": "crit4_A_ruptura", "A_abaixo": "crit4_A_abaixo", "A_ok": "crit4_A_ok",
-        "B_ruptura": "crit4_B_ruptura", "B_abaixo": "crit4_B_abaixo", "B_ok": "crit4_B_ok", "B_alto": "crit4_B_alto",
-        "C_ruptura": "crit4_C_ruptura", "C_abaixo": "crit4_C_abaixo", "C_ok": "crit4_C_ok",
+        "abc_period": "crit5_abc_period", "abc_a": "crit5_abc_a", "abc_b": "crit5_abc_b",
+        "A_ruptura": "crit5_A_ruptura", "A_abaixo": "crit5_A_abaixo", "A_ok": "crit5_A_ok", "A_alto": "crit5_A_alto",
+        "B_ruptura": "crit5_B_ruptura", "B_abaixo": "crit5_B_abaixo", "B_ok": "crit5_B_ok", "B_alto": "crit5_B_alto",
+        "C_ruptura": "crit5_C_ruptura", "C_abaixo": "crit5_C_abaixo", "C_ok": "crit5_C_ok", "C_alto": "crit5_C_alto",
     }
     for name, key in widget_keys.items():
         if key not in st.session_state:
@@ -1232,7 +1241,7 @@ def render_analise_linha():
                 on_change=auto_apply_criteria,
             )
             st.number_input(
-                "ABAIXO: abaixo de (dias)",
+                "RISCO RUPTURA: abaixo de (dias)",
                 min_value=1,
                 step=1,
                 key=widget_keys["A_abaixo"],
@@ -1245,7 +1254,14 @@ def render_analise_linha():
                 key=widget_keys["A_ok"],
                 on_change=auto_apply_criteria,
             )
-            st.caption("Acima do limite de OK = EXCESSO.")
+            st.number_input(
+                "ALTO: até (dias)",
+                min_value=1,
+                step=1,
+                key=widget_keys["A_alto"],
+                on_change=auto_apply_criteria,
+            )
+            st.caption("Acima do limite de ALTO = EXCESSO.")
 
         with st.expander("Curva B — status por dias", expanded=False):
             st.number_input(
@@ -1256,7 +1272,7 @@ def render_analise_linha():
                 on_change=auto_apply_criteria,
             )
             st.number_input(
-                "ABAIXO: abaixo de (dias)",
+                "RISCO RUPTURA: abaixo de (dias)",
                 min_value=1,
                 step=1,
                 key=widget_keys["B_abaixo"],
@@ -1287,7 +1303,7 @@ def render_analise_linha():
                 on_change=auto_apply_criteria,
             )
             st.number_input(
-                "ABAIXO: abaixo de (dias)",
+                "RISCO RUPTURA: abaixo de (dias)",
                 min_value=1,
                 step=1,
                 key=widget_keys["C_abaixo"],
@@ -1300,7 +1316,14 @@ def render_analise_linha():
                 key=widget_keys["C_ok"],
                 on_change=auto_apply_criteria,
             )
-            st.caption("Acima do limite de OK = EXCESSO.")
+            st.number_input(
+                "ALTO: até (dias)",
+                min_value=1,
+                step=1,
+                key=widget_keys["C_alto"],
+                on_change=auto_apply_criteria,
+            )
+            st.caption("Acima do limite de ALTO = EXCESSO.")
 
         st.button(
             "💾 Salvar como padrão da sessão",
@@ -1441,7 +1464,7 @@ def render_analise_linha():
             "Valor Alto/Excesso",
             "Valor Parado",
             "Ruptura",
-            "Abaixo Recomend.",
+            "Risco Ruptura",
             "Excesso",
             "Parados",
         ]
@@ -1493,13 +1516,13 @@ def render_analise_linha():
     with tab1:
         crit_kind = st.radio(
             "Visualizar",
-            ["Ruptura / Abaixo", "Alto / Excesso", "Estoque parado"],
+            ["Ruptura / Risco", "Alto / Excesso", "Estoque parado"],
             horizontal=True,
             key="criticos_v2",
         )
-        if crit_kind == "Ruptura / Abaixo":
+        if crit_kind == "Ruptura / Risco":
             filtered = products_filtered[
-                products_filtered["status"].isin(["RUPTURA", "ABAIXO DO RECOMENDADO"])
+                products_filtered["status"].isin(["RUPTURA", "RISCO DE RUPTURA"])
             ].copy()
         elif crit_kind == "Alto / Excesso":
             filtered = products_filtered[
@@ -1573,19 +1596,21 @@ def render_analise_linha():
         st.markdown(f"**Período único:** **{period_days} dias** para Curva ABC, cobertura e status. A até **{criteria['abc_a']:.0f}%**, B até **{criteria['abc_b']:.0f}%**, C acima disso.")
         st.markdown(
             f"**Curva A:** <{criteria['A_ruptura']} dias RUPTURA; "
-            f"{criteria['A_ruptura']}–<{criteria['A_abaixo']} ABAIXO; "
-            f"{criteria['A_abaixo']}–{criteria['A_ok']} OK; >{criteria['A_ok']} EXCESSO."
+            f"{criteria['A_ruptura']}–<{criteria['A_abaixo']} RISCO RUPTURA; "
+            f"{criteria['A_abaixo']}–{criteria['A_ok']} OK; "
+            f">{criteria['A_ok']}–{criteria['A_alto']} ALTO; >{criteria['A_alto']} EXCESSO."
         )
         st.markdown(
             f"**Curva B:** <{criteria['B_ruptura']} dias RUPTURA; "
-            f"{criteria['B_ruptura']}–<{criteria['B_abaixo']} ABAIXO; "
+            f"{criteria['B_ruptura']}–<{criteria['B_abaixo']} RISCO RUPTURA; "
             f"{criteria['B_abaixo']}–{criteria['B_ok']} OK; "
             f">{criteria['B_ok']}–{criteria['B_alto']} ALTO; >{criteria['B_alto']} EXCESSO."
         )
         st.markdown(
             f"**Curva C:** <{criteria['C_ruptura']} dias RUPTURA; "
-            f"{criteria['C_ruptura']}–<{criteria['C_abaixo']} ABAIXO; "
-            f"{criteria['C_abaixo']}–{criteria['C_ok']} OK; >{criteria['C_ok']} EXCESSO."
+            f"{criteria['C_ruptura']}–<{criteria['C_abaixo']} RISCO RUPTURA; "
+            f"{criteria['C_abaixo']}–{criteria['C_ok']} OK; "
+            f">{criteria['C_ok']}–{criteria['C_alto']} ALTO; >{criteria['C_alto']} EXCESSO."
         )
         st.caption("Produto sem venda e com saldo positivo é classificado como Estoque parado. Estoque negativo permanece em classificação própria.")
 
