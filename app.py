@@ -181,12 +181,60 @@ def parse_pend(df):
 
 
 with st.sidebar:
-    st.header('Configuração')
-    pct_m20 = st.number_input('Percentual base do mínimo M20', min_value=0.0, max_value=1.0, value=0.25, step=0.01, format='%.2f')
-    st.caption('A planilha original usa 25%.')
+    st.header('Configuração do pedido')
+
+    considerar_necessidade = st.checkbox(
+        'Considerar necessidade das filiais',
+        value=True,
+        help='Quando marcado, soma ao pedido a necessidade calculada de todas as filiais.'
+    )
+
+    leadtime_dias = st.number_input(
+        'Lead Time geral (dias)',
+        min_value=0,
+        max_value=365,
+        value=0,
+        step=1,
+        help='Informe o Lead Time total: fornecedor + processo interno.'
+    )
+
+    abater_estoque_m20 = st.checkbox(
+        'Abater estoque atual da M20',
+        value=True,
+        help='Desconta do pedido o estoque disponível na M20.'
+    )
+
+    abater_pendencia = st.checkbox(
+        'Abater pendência de compra',
+        value=True,
+        help='Quando marcado, desconta as quantidades importadas no arquivo de pendências.'
+    )
+
+    with st.expander('Validação dos mínimos'):
+        pct_m20 = st.number_input(
+            'Percentual base do mínimo M20',
+            min_value=0.0,
+            max_value=1.0,
+            value=0.25,
+            step=0.01,
+            format='%.2f'
+        )
+        st.caption('Mantido para validar e acompanhar o mínimo correto da M20. A planilha original usa 25%.')
+
     st.markdown('---')
     st.markdown('**Regra do pedido final**')
-    st.caption('Necessidade das filiais + mínimo correto M20 − estoque M20 − pendência; depois arredonda pela embalagem de compra.')
+    partes_regra = []
+    if considerar_necessidade:
+        partes_regra.append('Necessidade das filiais')
+    if leadtime_dias > 0:
+        partes_regra.append(f'Lead Time ({leadtime_dias} dias)')
+    regra = ' + '.join(partes_regra) if partes_regra else '0'
+    if abater_estoque_m20:
+        regra += ' − estoque M20'
+    if abater_pendencia:
+        regra += ' − pendência'
+    st.caption(regra + '; depois arredonda pela embalagem de compra.')
+    st.caption('Os mínimos das filiais e da M20 continuam sendo calculados e validados, mesmo quando não entram diretamente na fórmula do pedido.')
 
 main = st.file_uploader('1) Importe o relatório do sistema', type=['xlsx','xls','csv'], help='Pode ser o mesmo formato usado na aba Importação da planilha.')
 if not main:
@@ -220,14 +268,18 @@ with st.expander('2) Dados manuais de filiais ausentes no relatório (opcional)'
     )
 
 with st.expander('3) Pendências de compra (opcional)'):
-    st.caption('Equivale à aba Pendências da planilha. A quantidade pendente é descontada da necessidade bruta.')
-    pend_up = st.file_uploader('Importar pendências', type=['xlsx','xls','csv'], key='pend')
-    st.download_button(
-        'Baixar modelo de pendências',
-        xlsx_bytes({'Pendencias': pend_template(base)}),
-        file_name='modelo_pendencias.xlsx',
-        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    )
+    if abater_pendencia:
+        st.caption('Importe as pendências por produto. Elas serão descontadas da necessidade bruta.')
+        pend_up = st.file_uploader('Importar pendências', type=['xlsx','xls','csv'], key='pend')
+        st.download_button(
+            'Baixar modelo de pendências',
+            xlsx_bytes({'Pendencias': pend_template(base)}),
+            file_name='modelo_pendencias.xlsx',
+            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    else:
+        st.info('Abatimento de pendências desativado na configuração do pedido.')
+        pend_up = None
 
 manual_df = parse_manual(read_file(manual_up) if manual_up else None)
 pend_df = parse_pend(read_file(pend_up) if pend_up else None)
@@ -288,7 +340,20 @@ for _, r in base.iterrows():
     minimo_m20_atual = float(r['minimo_M20'])
     estoque_m20 = float(r['estoque_M20'])
     pendencia = float(pend_map.get(codigo,0))
-    necessidade_bruta = max(0.0, necessidade_total + minimo_m20_correto - estoque_m20 - pendencia)
+
+    # Lead Time usa a média diária das vendas de 90 dias do mesmo grupo usado
+    # para acompanhar o abastecimento da M20.
+    media_diaria_grupo = grupo_25 / 90.0
+    qtd_leadtime = media_diaria_grupo * float(leadtime_dias)
+
+    necessidade_aplicada = necessidade_total if considerar_necessidade else 0.0
+    estoque_abatido = estoque_m20 if abater_estoque_m20 else 0.0
+    pendencia_abatida = pendencia if abater_pendencia else 0.0
+
+    necessidade_bruta = max(
+        0.0,
+        necessidade_aplicada + qtd_leadtime - estoque_abatido - pendencia_abatida
+    )
     qtd_final = float(roundup_multiple([necessidade_bruta],[r.emb_compra])[0])
 
     m20_rows.append({
@@ -297,13 +362,26 @@ for _, r in base.iterrows():
         'M30 Vendas 90d':vendas90_m30,'Vendas 90d Grupo p/ Percentual':grupo_25,
         'Percentual Base':pct_m20,'Minimo M20 Atual':minimo_m20_atual,'Minimo M20 Correto':minimo_m20_correto,
         'Status':'OK' if minimo_m20_atual == minimo_m20_correto else 'AJUSTAR',
+        'Lead Time Geral (dias)':leadtime_dias,'Media Diaria Grupo 90d':media_diaria_grupo,
+        'Cobertura Lead Time':qtd_leadtime,
         'Estoque Atual M20':estoque_m20,'Pendencia Compra':pendencia
     })
     final_rows.append({
         'Codigo':codigo,'Referencia':r.referencia,'Descricao':r.descricao,'Marca':r.marca,
-        'Emb. Compra':int(r.emb_compra),'Necessidade Geral Filiais':necessidade_total,
-        'Minimo Correto M20':minimo_m20_correto,'Estoque Atual M20':estoque_m20,
-        'Pendencia Compra':pendencia,'Necessidade Bruta':necessidade_bruta,'QTD FINAL COMPRA':int(qtd_final)
+        'Emb. Compra':int(r.emb_compra),
+        'Necessidade Geral Filiais':necessidade_total,
+        'Necessidade Aplicada':necessidade_aplicada,
+        'Lead Time Geral (dias)':leadtime_dias,
+        'Media Diaria Grupo 90d':media_diaria_grupo,
+        'Cobertura Lead Time':qtd_leadtime,
+        'Minimo M20 Atual':minimo_m20_atual,
+        'Minimo Correto M20':minimo_m20_correto,
+        'Estoque Atual M20':estoque_m20,
+        'Estoque M20 Abatido':estoque_abatido,
+        'Pendencia Compra':pendencia,
+        'Pendencia Abatida':pendencia_abatida,
+        'Necessidade Bruta':necessidade_bruta,
+        'QTD FINAL COMPRA':int(qtd_final)
     })
 
 minimos = pd.DataFrame(min_rows)
@@ -311,6 +389,23 @@ necessidades = pd.DataFrame(need_rows)
 m20 = pd.DataFrame(m20_rows)
 final = pd.DataFrame(final_rows)
 pedido = final[final['QTD FINAL COMPRA'] > 0][['Codigo','Referencia','Descricao','Marca','Emb. Compra','QTD FINAL COMPRA']].copy()
+
+configuracao = pd.DataFrame({
+    'Parametro': [
+        'Considerar necessidade das filiais',
+        'Lead Time geral (dias)',
+        'Abater estoque atual da M20',
+        'Abater pendência de compra',
+        'Percentual base do mínimo M20'
+    ],
+    'Valor': [
+        'Sim' if considerar_necessidade else 'Não',
+        leadtime_dias,
+        'Sim' if abater_estoque_m20 else 'Não',
+        'Sim' if abater_pendencia else 'Não',
+        pct_m20
+    ]
+})
 
 st.markdown('---')
 st.subheader('Resultado')
@@ -351,6 +446,7 @@ export = xlsx_bytes({
     'Dados Importados': raw,
     'Dados Manuais': manual_df,
     'Pendencias': pend_df,
+    'Configuracao': configuracao,
 })
 
 st.download_button(
@@ -361,4 +457,4 @@ st.download_button(
     type='primary'
 )
 
-st.caption('A regra foi reproduzida a partir da planilha fornecida: mínimo das filiais = maior entre mínimo cadastrado e vendas de 90 dias; necessidade por filial segue a mesma condição da Calculadora; M20 usa percentual do grupo + vendas de 90 dias da M30; pendências são descontadas; pedido final é arredondado pela embalagem de compra.')
+st.caption('Os mínimos das filiais continuam validados pelo maior valor entre mínimo cadastrado e vendas de 90 dias. O mínimo da M20 também continua calculado para acompanhamento. O pedido final usa as opções marcadas na Configuração: necessidade das filiais + cobertura do Lead Time − estoque M20 − pendências, e depois arredonda pela embalagem de compra.')
