@@ -130,6 +130,131 @@ def read_file(uploaded):
     raise ValueError("Arquivo não reconhecido. Use XLSX, XLS ou CSV.")
 
 
+def line_import_template_bytes():
+    colunas = [
+        "Codigo",
+        "Descrição",
+        "NumFabricante",
+        "CodLinha",
+        "Nome",
+        "Estoque do Grupo",
+        "estoqueMinGrupo",
+        "Vendas30diasRoni",
+        "Vendas60diasRoni",
+        "Vendas90diasRoni",
+        "Vendas360diasRoni",
+        "Preço Venda",
+    ]
+
+    modelo = pd.DataFrame(columns=colunas)
+
+    instrucoes = pd.DataFrame([
+        {
+            "Etapa": 1,
+            "Orientação": "Use a aba MODELO IMPORTACAO como base e mantenha os nomes dos cabeçalhos."
+        },
+        {
+            "Etapa": 2,
+            "Orientação": "Preencha uma linha por produto. Não inclua totais, subtotais ou títulos no meio da tabela."
+        },
+        {
+            "Etapa": 3,
+            "Orientação": "Codigo é o código interno do produto; NumFabricante é a referência do fabricante."
+        },
+        {
+            "Etapa": 4,
+            "Orientação": "CodLinha e Nome identificam a linha/grupo do produto e são usados nos resumos gerenciais."
+        },
+        {
+            "Etapa": 5,
+            "Orientação": "Estoque, mínimo, vendas e preço devem ser informados como valores numéricos."
+        },
+        {
+            "Etapa": 6,
+            "Orientação": "As vendas de 30, 60 e 90 dias são acumuladas e usadas para estimar períodos intermediários."
+        },
+        {
+            "Etapa": 7,
+            "Orientação": "A coluna longa pode ser Vendas360diasRoni ou Vendas365diasRoni. Este modelo usa 360 dias."
+        },
+        {
+            "Etapa": 8,
+            "Orientação": "Preço Venda é usado para calcular faturamento estimado e valor do estoque."
+        },
+        {
+            "Etapa": 9,
+            "Orientação": "Salve preferencialmente em .xlsx. O NEXO também aceita .xls e .csv."
+        },
+        {
+            "Etapa": 10,
+            "Orientação": "Antes de importar, confira se nenhum cabeçalho obrigatório foi removido ou alterado."
+        },
+    ])
+
+    dicionario = pd.DataFrame([
+        {"Campo": "Codigo", "Descrição": "Código interno do produto", "Tipo esperado": "Texto / número", "Obrigatório": "Sim"},
+        {"Campo": "Descrição", "Descrição": "Descrição do produto", "Tipo esperado": "Texto", "Obrigatório": "Sim"},
+        {"Campo": "NumFabricante", "Descrição": "Referência ou número do fabricante", "Tipo esperado": "Texto", "Obrigatório": "Sim"},
+        {"Campo": "CodLinha", "Descrição": "Código da linha do produto", "Tipo esperado": "Texto / número", "Obrigatório": "Sim"},
+        {"Campo": "Nome", "Descrição": "Nome da linha do produto", "Tipo esperado": "Texto", "Obrigatório": "Sim"},
+        {"Campo": "Estoque do Grupo", "Descrição": "Estoque atual consolidado do grupo", "Tipo esperado": "Número", "Obrigatório": "Sim"},
+        {"Campo": "estoqueMinGrupo", "Descrição": "Estoque mínimo consolidado do grupo", "Tipo esperado": "Número", "Obrigatório": "Sim"},
+        {"Campo": "Vendas30diasRoni", "Descrição": "Vendas acumuladas dos últimos 30 dias", "Tipo esperado": "Número", "Obrigatório": "Sim"},
+        {"Campo": "Vendas60diasRoni", "Descrição": "Vendas acumuladas dos últimos 60 dias", "Tipo esperado": "Número", "Obrigatório": "Sim"},
+        {"Campo": "Vendas90diasRoni", "Descrição": "Vendas acumuladas dos últimos 90 dias", "Tipo esperado": "Número", "Obrigatório": "Sim"},
+        {"Campo": "Vendas360diasRoni", "Descrição": "Vendas acumuladas dos últimos 360 dias; 365 dias também é aceito", "Tipo esperado": "Número", "Obrigatório": "Sim"},
+        {"Campo": "Preço Venda", "Descrição": "Preço unitário de venda usado nas análises financeiras", "Tipo esperado": "Número", "Obrigatório": "Sim"},
+    ])
+
+    exemplo = pd.DataFrame([{
+        "Codigo": "10001",
+        "Descrição": "PRODUTO EXEMPLO",
+        "NumFabricante": "REF-001",
+        "CodLinha": "10",
+        "Nome": "LINHA EXEMPLO",
+        "Estoque do Grupo": 50,
+        "estoqueMinGrupo": 20,
+        "Vendas30diasRoni": 15,
+        "Vendas60diasRoni": 32,
+        "Vendas90diasRoni": 48,
+        "Vendas360diasRoni": 190,
+        "Preço Venda": 99.90,
+    }])
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        modelo.to_excel(writer, sheet_name="MODELO IMPORTACAO", index=False)
+        instrucoes.to_excel(writer, sheet_name="INSTRUCOES", index=False)
+        dicionario.to_excel(writer, sheet_name="DICIONARIO", index=False)
+        exemplo.to_excel(writer, sheet_name="EXEMPLO", index=False)
+
+        for ws in writer.book.worksheets:
+            ws.freeze_panes = "A2"
+            ws.auto_filter.ref = ws.dimensions
+            ws.sheet_view.showGridLines = False
+
+            for cell in ws[1]:
+                cell.font = Font(name="Times New Roman", bold=True, color=WHITE)
+                cell.fill = PatternFill("solid", fgColor=NAVY)
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+            for row in ws.iter_rows(min_row=2):
+                for cell in row:
+                    cell.font = Font(name="Times New Roman", size=11)
+                    cell.alignment = Alignment(vertical="top", wrap_text=True)
+
+            for col in ws.columns:
+                letter = get_column_letter(col[0].column)
+                values = [str(cell.value or "") for cell in col[:200]]
+                width = max([len(v) for v in values] + [10]) + 2
+                ws.column_dimensions[letter].width = min(max(width, 12), 48)
+
+            ws.row_dimensions[1].height = 30
+
+    output.seek(0)
+    return output.getvalue()
+
+
 def standardize_line_report(df):
     aliases = {
         "codigo": ("Codigo",),
@@ -1364,14 +1489,51 @@ def render_analise_linha():
         "e produtos parados — direto do relatório bruto do sistema."
     )
 
-    uploaded = st.file_uploader(
-        "Importe o relatório bruto por marca",
-        type=["xlsx", "xls", "csv"],
-        key="linha_raw_v2",
-        help="Use o arquivo exatamente como ele sai do sistema.",
-    )
+    st.markdown("### Importação do relatório")
+
+    col_import, col_modelo = st.columns([2.2, 1])
+    with col_import:
+        uploaded = st.file_uploader(
+            "Importe o relatório bruto por marca",
+            type=["xlsx", "xls", "csv"],
+            key="linha_raw_v2",
+            help="Use o relatório no formato esperado pelo NEXO. Se tiver dúvida, baixe o modelo ao lado.",
+        )
+
+    with col_modelo:
+        st.markdown("**Primeira vez usando?**")
+        st.download_button(
+            "📥 Baixar modelo de importação",
+            data=line_import_template_bytes(),
+            file_name="NEXO_modelo_importacao_analise_linha.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="download_modelo_analise_linha",
+        )
+
+    with st.expander("📘 Como preparar o arquivo para a Análise de Linha"):
+        st.markdown(
+            """
+            **Para evitar erros na importação:**
+
+            - use o modelo oficial disponibilizado acima;
+            - mantenha os nomes dos cabeçalhos;
+            - coloque **um produto por linha**;
+            - informe código, descrição, referência, código da linha e nome da linha;
+            - estoque, mínimo, vendas e preço devem ser valores numéricos;
+            - mantenha as vendas acumuladas de **30, 60, 90 e 360/365 dias**;
+            - não coloque totais ou subtotais no meio da base;
+            - consulte as abas **INSTRUCOES**, **DICIONARIO** e **EXEMPLO** dentro do arquivo modelo.
+
+            O NEXO valida o relatório antes da análise e informa exatamente quais colunas obrigatórias estão faltando.
+            """
+        )
+
     if not uploaded:
-        st.info("Envie o relatório bruto para montar o dashboard gerencial.")
+        st.info(
+            "Envie o relatório bruto para montar o dashboard gerencial. "
+            "Se for a primeira utilização, baixe o modelo e consulte as instruções."
+        )
         return
 
     try:
