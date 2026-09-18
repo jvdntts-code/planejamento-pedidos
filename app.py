@@ -8,6 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from line_analysis_v2 import render_analise_linha
+from pendencias_module import render_pendencias
 from tasks_module import render_tasks
 
 st.set_page_config(page_title="NEXO | by JVN", page_icon="◆", layout="wide")
@@ -128,10 +129,7 @@ if pagina == "📊 Análise de Linha":
     st.stop()
 
 if pagina == "🔎 Pendências":
-    render_em_construcao(
-        "🔎 Pendências",
-        "Aqui vamos importar e confrontar as pendências, identificar divergências e acompanhar o que continua em aberto.",
-    )
+    render_pendencias()
     st.stop()
 
 if pagina == "🧾 Gestão de Pedidos":
