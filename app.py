@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from line_analysis import render_analise_linha
+from line_analysis_v2 import render_analise_linha
 
 st.set_page_config(page_title="Planejamento de Pedido", page_icon="📦", layout="wide")
 
