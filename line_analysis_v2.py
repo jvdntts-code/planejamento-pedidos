@@ -2,11 +2,12 @@ import io
 import re
 import unicodedata
 
+import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
 
-from openpyxl.chart import BarChart, DoughnutChart, Reference
+from openpyxl.chart import PieChart, Reference
 from openpyxl.chart.label import DataLabelList
 from openpyxl.formatting.rule import ColorScaleRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -370,6 +371,34 @@ def brl(value):
 
 def integer(value):
     return f"{int(round(float(value))):,}".replace(",", ".")
+
+
+def _pie_chart(data, category, value, title, value_label="Valor"):
+    chart_data = data[[category, value]].copy()
+    chart_data = chart_data[pd.to_numeric(chart_data[value], errors="coerce").fillna(0) > 0].copy()
+    chart_data[value] = pd.to_numeric(chart_data[value], errors="coerce").fillna(0)
+    total = float(chart_data[value].sum())
+    chart_data["percentual"] = np.where(total > 0, chart_data[value] / total, 0)
+
+    if chart_data.empty:
+        st.info("Sem dados para este gráfico.")
+        return
+
+    chart = (
+        alt.Chart(chart_data)
+        .mark_arc()
+        .encode(
+            theta=alt.Theta(f"{value}:Q", stack=True),
+            color=alt.Color(f"{category}:N", legend=alt.Legend(title=None, orient="bottom")),
+            tooltip=[
+                alt.Tooltip(f"{category}:N", title=category),
+                alt.Tooltip(f"{value}:Q", title=value_label, format=",.2f"),
+                alt.Tooltip("percentual:Q", title="Participação", format=".1%"),
+            ],
+        )
+        .properties(title=title, height=360)
+    )
+    st.altair_chart(chart, use_container_width=True)
 
 
 def _card_html(title, value, subtitle=""):
@@ -781,14 +810,12 @@ def formatted_xlsx_bytes(
         ws["O1"] = f"Faturamento {period_days}d"
         ws["Q1"] = "Linha"
         ws["R1"] = "Valor Estoque"
-        ws["S1"] = "Valor Alto/Excesso"
         for i, row in summary.iterrows():
             excel_row = start + i
             ws.cell(excel_row, 14).value = row["linha"]
             ws.cell(excel_row, 15).value = float(row[revenue_col])
             ws.cell(excel_row, 17).value = row["linha"]
             ws.cell(excel_row, 18).value = float(row["valor_estoque"])
-            ws.cell(excel_row, 19).value = float(row["valor_alto_excesso"])
 
         status_counts = products["status"].value_counts()
         ws["U1"] = "Status"
@@ -797,73 +824,103 @@ def formatted_xlsx_bytes(
             ws.cell(i, 21).value = status
             ws.cell(i, 22).value = int(qty)
 
+        abc_counts = products["curva_abc"].value_counts().reindex(["A", "B", "C"], fill_value=0)
+        ws["X1"] = "Curva ABC"
+        ws["Y1"] = "Itens"
+        for i, (curva, qty) in enumerate(abc_counts.items(), start=2):
+            ws.cell(i, 24).value = curva
+            ws.cell(i, 25).value = int(qty)
+
         max_line_row = 1 + len(summary)
-        chart1 = BarChart()
-        chart1.type = "bar"
+
+        chart1 = PieChart()
         chart1.style = 10
-        chart1.title = f"Faturamento por Linha — {period_days} dias"
-        chart1.x_axis.title = "R$"
-        chart1.y_axis.title = "Linha"
-        chart1.legend = None
+        chart1.title = f"Participação do Faturamento por Linha — {period_days} dias"
         chart1.height = 8
         chart1.width = 14
-        chart1.add_data(Reference(ws, min_col=15, min_row=1, max_row=max_line_row), titles_from_data=True)
-        chart1.set_categories(Reference(ws, min_col=14, min_row=2, max_row=max_line_row))
+        chart1.add_data(
+            Reference(ws, min_col=15, min_row=1, max_row=max_line_row),
+            titles_from_data=True,
+        )
+        chart1.set_categories(
+            Reference(ws, min_col=14, min_row=2, max_row=max_line_row)
+        )
+        chart1.dataLabels = DataLabelList()
+        chart1.dataLabels.showPercent = True
+        chart1.dataLabels.showLeaderLines = True
         ws.add_chart(chart1, "A19")
 
-        chart2 = BarChart()
-        chart2.type = "bar"
+        chart2 = PieChart()
         chart2.style = 11
-        chart2.title = "Valor de Estoque x Alto/Excesso"
-        chart2.x_axis.title = "R$"
-        chart2.y_axis.title = "Linha"
+        chart2.title = "Participação do Valor de Estoque por Linha"
         chart2.height = 8
         chart2.width = 14
         chart2.add_data(
-            Reference(ws, min_col=18, max_col=19, min_row=1, max_row=max_line_row),
+            Reference(ws, min_col=18, min_row=1, max_row=max_line_row),
             titles_from_data=True,
         )
-        chart2.set_categories(Reference(ws, min_col=17, min_row=2, max_row=max_line_row))
+        chart2.set_categories(
+            Reference(ws, min_col=17, min_row=2, max_row=max_line_row)
+        )
+        chart2.dataLabels = DataLabelList()
+        chart2.dataLabels.showPercent = True
+        chart2.dataLabels.showLeaderLines = True
         ws.add_chart(chart2, "G19")
 
         status_last = 1 + len(status_counts)
-        chart3 = DoughnutChart()
+        chart3 = PieChart()
         chart3.style = 10
         chart3.title = "Distribuição dos SKUs por Status"
-        chart3.holeSize = 55
         chart3.height = 8
-        chart3.width = 13
+        chart3.width = 14
         chart3.add_data(
             Reference(ws, min_col=22, min_row=1, max_row=status_last),
             titles_from_data=True,
         )
-        chart3.set_categories(Reference(ws, min_col=21, min_row=2, max_row=status_last))
+        chart3.set_categories(
+            Reference(ws, min_col=21, min_row=2, max_row=status_last)
+        )
         chart3.dataLabels = DataLabelList()
         chart3.dataLabels.showPercent = True
         chart3.dataLabels.showLeaderLines = True
         ws.add_chart(chart3, "A35")
 
-        ws.merge_cells("G35:L35")
-        ws["G35"] = "COMO LER O RELATÓRIO"
-        ws["G35"].fill = PatternFill("solid", fgColor=NAVY)
-        ws["G35"].font = Font(color=WHITE, bold=True)
-        guide = [
-            ("A36", "RUPTURA", "Cobertura abaixo do limite definido para a curva."),
-            ("A37", "ABAIXO", "Abaixo da faixa recomendada."),
-            ("A38", "OK", "Estoque dentro da faixa esperada."),
-            ("A39", "ALTO / EXCESSO", "Capital acima da faixa de cobertura."),
-            ("A40", "PARADO", "Saldo positivo sem venda no período."),
-        ]
-        for row_num, (label, desc) in enumerate(
-            [(x[1], x[2]) for x in guide], start=36
-        ):
-            ws.merge_cells(start_row=row_num, start_column=7, end_row=row_num, end_column=8)
-            ws.merge_cells(start_row=row_num, start_column=9, end_row=row_num, end_column=12)
-            ws.cell(row_num, 7).value = label
-            ws.cell(row_num, 7).font = Font(bold=True)
-            ws.cell(row_num, 9).value = desc
+        chart4 = PieChart()
+        chart4.style = 10
+        chart4.title = "Distribuição Curva ABC"
+        chart4.height = 8
+        chart4.width = 14
+        chart4.add_data(
+            Reference(ws, min_col=25, min_row=1, max_row=4),
+            titles_from_data=True,
+        )
+        chart4.set_categories(
+            Reference(ws, min_col=24, min_row=2, max_row=4)
+        )
+        chart4.dataLabels = DataLabelList()
+        chart4.dataLabels.showPercent = True
+        chart4.dataLabels.showLeaderLines = True
+        ws.add_chart(chart4, "G35")
 
-        for col in range(14, 23):
+        ws.merge_cells("A51:L51")
+        ws["A51"] = "COMO LER O RELATÓRIO"
+        ws["A51"].fill = PatternFill("solid", fgColor=NAVY)
+        ws["A51"].font = Font(color=WHITE, bold=True)
+        guide = [
+            ("RUPTURA", "Cobertura abaixo do limite definido para a curva."),
+            ("ABAIXO", "Abaixo da faixa recomendada."),
+            ("OK", "Estoque dentro da faixa esperada."),
+            ("ALTO / EXCESSO", "Capital acima da faixa de cobertura."),
+            ("PARADO", "Saldo positivo sem venda no período."),
+        ]
+        for row_num, (label, desc) in enumerate(guide, start=52):
+            ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3)
+            ws.merge_cells(start_row=row_num, start_column=4, end_row=row_num, end_column=12)
+            ws.cell(row_num, 1).value = label
+            ws.cell(row_num, 1).font = Font(bold=True)
+            ws.cell(row_num, 4).value = desc
+
+        for col in range(14, 26):
             ws.column_dimensions[get_column_letter(col)].hidden = True
 
         # Demais abas.
@@ -1252,39 +1309,57 @@ def render_analise_linha():
     st.markdown("### Gráficos gerenciais")
     g1, g2 = st.columns(2)
 
-    revenue_chart = (
-        summary[["linha", revenue_col]]
-        .set_index("linha")
-        .rename(columns={revenue_col: f"Faturamento {period_days}d"})
-    )
+    revenue_pie = summary[["linha", revenue_col]].copy()
     with g1:
-        st.markdown("**Faturamento por linha**")
-        st.bar_chart(revenue_chart, use_container_width=True)
-
-    stock_chart = (
-        summary[["linha", "valor_estoque", "valor_alto_excesso"]]
-        .set_index("linha")
-        .rename(
-            columns={
-                "valor_estoque": "Valor estoque",
-                "valor_alto_excesso": "Alto/Excesso",
-            }
+        _pie_chart(
+            revenue_pie,
+            "linha",
+            revenue_col,
+            f"Participação do faturamento por linha — {period_days} dias",
+            "Faturamento",
         )
-    )
+
+    stock_pie = summary[["linha", "valor_estoque"]].copy()
     with g2:
-        st.markdown("**Estoque x Alto/Excesso por linha**")
-        st.bar_chart(stock_chart, use_container_width=True)
+        _pie_chart(
+            stock_pie,
+            "linha",
+            "valor_estoque",
+            "Participação do valor de estoque por linha",
+            "Valor do estoque",
+        )
 
     g3, g4 = st.columns(2)
-    status_chart = products["status"].value_counts().rename("Itens").to_frame()
+    status_pie = (
+        products["status"]
+        .value_counts()
+        .rename_axis("Status")
+        .reset_index(name="Itens")
+    )
     with g3:
-        st.markdown("**Distribuição dos produtos por status**")
-        st.bar_chart(status_chart, use_container_width=True)
+        _pie_chart(
+            status_pie,
+            "Status",
+            "Itens",
+            "Distribuição dos produtos por status",
+            "Itens",
+        )
 
-    abc_chart = products["curva_abc"].value_counts().reindex(["A", "B", "C"], fill_value=0).rename("Itens").to_frame()
+    abc_pie = (
+        products["curva_abc"]
+        .value_counts()
+        .reindex(["A", "B", "C"], fill_value=0)
+        .rename_axis("Curva")
+        .reset_index(name="Itens")
+    )
     with g4:
-        st.markdown("**Distribuição Curva ABC**")
-        st.bar_chart(abc_chart, use_container_width=True)
+        _pie_chart(
+            abc_pie,
+            "Curva",
+            "Itens",
+            "Distribuição Curva ABC",
+            "Itens",
+        )
 
     st.markdown("### Ranking gerencial por linha")
     manager = _friendly_summary(summary, long_days)[
