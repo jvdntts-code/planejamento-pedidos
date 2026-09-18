@@ -1078,49 +1078,118 @@ def render_analise_linha():
         for name, key in widget_keys.items():
             st.session_state[key] = DEFAULT_CRITERIA[name]
 
-    with st.expander("⚙️ Critérios editáveis da análise", expanded=False):
-        st.caption("As alterações só entram no cálculo quando você clicar em **Aplicar critérios**. O período da cobertura/status continua sendo o período principal escolhido acima.")
+    with st.sidebar:
+        st.markdown("---")
+        st.subheader("⚙️ Critérios da análise")
+        st.caption("Configure aqui a Curva ABC e os dias de cobertura. Depois clique em **Aplicar critérios**.")
 
-        st.markdown("#### Curva ABC")
-        abc1, abc2, abc3 = st.columns(3)
-        abc1.selectbox(
+        st.markdown("**Curva ABC**")
+        st.selectbox(
             "Período da Curva ABC",
             [90, long_days],
             format_func=lambda x: f"{x} dias",
             key="crit_abc_period",
         )
-        abc2.number_input("Curva A até (%)", min_value=1.0, max_value=99.0, step=1.0, key="crit_abc_a")
-        abc3.number_input("Curva B até (%)", min_value=2.0, max_value=100.0, step=1.0, key="crit_abc_b")
+        st.number_input(
+            "Curva A até (%)",
+            min_value=1.0,
+            max_value=99.0,
+            step=1.0,
+            key="crit_abc_a",
+        )
+        st.number_input(
+            "Curva B até (%)",
+            min_value=2.0,
+            max_value=100.0,
+            step=1.0,
+            key="crit_abc_b",
+        )
+        st.caption("Curva C = acima do limite da Curva B.")
 
-        st.markdown("#### Cobertura e status por curva")
-        st.caption("Exemplo: Curva A com cobertura menor que 30 dias = RUPTURA.")
+        with st.expander("Curva A — status por dias", expanded=True):
+            st.number_input(
+                "RUPTURA: abaixo de (dias)",
+                min_value=0,
+                step=1,
+                key="crit_A_ruptura",
+            )
+            st.number_input(
+                "ABAIXO: abaixo de (dias)",
+                min_value=1,
+                step=1,
+                key="crit_A_abaixo",
+            )
+            st.number_input(
+                "OK: até (dias)",
+                min_value=1,
+                step=1,
+                key="crit_A_ok",
+            )
+            st.caption("Acima do limite de OK = EXCESSO.")
 
-        st.markdown("**Curva A**")
-        a1, a2, a3 = st.columns(3)
-        a1.number_input("RUPTURA: abaixo de (dias)", min_value=0, step=1, key="crit_A_ruptura")
-        a2.number_input("ABAIXO: abaixo de (dias)", min_value=1, step=1, key="crit_A_abaixo")
-        a3.number_input("OK: até (dias)", min_value=1, step=1, key="crit_A_ok")
-        st.caption("Acima do limite de OK = EXCESSO.")
+        with st.expander("Curva B — status por dias", expanded=False):
+            st.number_input(
+                "RUPTURA: abaixo de (dias)",
+                min_value=0,
+                step=1,
+                key="crit_B_ruptura",
+            )
+            st.number_input(
+                "ABAIXO: abaixo de (dias)",
+                min_value=1,
+                step=1,
+                key="crit_B_abaixo",
+            )
+            st.number_input(
+                "OK: até (dias)",
+                min_value=1,
+                step=1,
+                key="crit_B_ok",
+            )
+            st.number_input(
+                "ALTO: até (dias)",
+                min_value=1,
+                step=1,
+                key="crit_B_alto",
+            )
+            st.caption("Acima do limite de ALTO = EXCESSO.")
 
-        st.markdown("**Curva B**")
-        b1, b2, b3, b4 = st.columns(4)
-        b1.number_input("RUPTURA < (dias)", min_value=0, step=1, key="crit_B_ruptura")
-        b2.number_input("ABAIXO < (dias)", min_value=1, step=1, key="crit_B_abaixo")
-        b3.number_input("OK até (dias)", min_value=1, step=1, key="crit_B_ok")
-        b4.number_input("ALTO até (dias)", min_value=1, step=1, key="crit_B_alto")
-        st.caption("Acima do limite de ALTO = EXCESSO.")
+        with st.expander("Curva C — status por dias", expanded=False):
+            st.number_input(
+                "RUPTURA: abaixo de (dias)",
+                min_value=0,
+                step=1,
+                key="crit_C_ruptura",
+            )
+            st.number_input(
+                "ABAIXO: abaixo de (dias)",
+                min_value=1,
+                step=1,
+                key="crit_C_abaixo",
+            )
+            st.number_input(
+                "OK: até (dias)",
+                min_value=1,
+                step=1,
+                key="crit_C_ok",
+            )
+            st.caption("Acima do limite de OK = EXCESSO.")
 
-        st.markdown("**Curva C**")
-        c1, c2, c3 = st.columns(3)
-        c1.number_input("RUPTURA: abaixo de (dias)", min_value=0, step=1, key="crit_C_ruptura")
-        c2.number_input("ABAIXO: abaixo de (dias)", min_value=1, step=1, key="crit_C_abaixo")
-        c3.number_input("OK: até (dias)", min_value=1, step=1, key="crit_C_ok")
-        st.caption("Acima do limite de OK = EXCESSO.")
-
-        bt1, bt2, bt3 = st.columns(3)
-        bt1.button("✅ Aplicar critérios", use_container_width=True, on_click=apply_criteria)
-        bt2.button("💾 Salvar como padrão da sessão", use_container_width=True, on_click=save_criteria)
-        bt3.button("↩️ Restaurar padrão", use_container_width=True, on_click=reset_criteria)
+        st.button(
+            "✅ Aplicar critérios",
+            use_container_width=True,
+            on_click=apply_criteria,
+        )
+        st.button(
+            "💾 Salvar como padrão da sessão",
+            use_container_width=True,
+            on_click=save_criteria,
+        )
+        st.button(
+            "↩️ Restaurar padrão",
+            use_container_width=True,
+            on_click=reset_criteria,
+        )
 
     criteria = st.session_state["line_criteria_active"].copy()
     errors = _criteria_errors(criteria)
@@ -1129,10 +1198,10 @@ def render_analise_linha():
             st.error(error)
         st.stop()
 
-    st.caption(
-        f"**Regra ativa:** Curva ABC em {int(criteria['abc_period'])} dias • "
-        f"A até {criteria['abc_a']:.0f}% • B até {criteria['abc_b']:.0f}% • "
-        f"Cobertura/status calculados sobre {period_days} dias."
+    st.info(
+        f"⚙️ **Critérios no menu lateral** — Regra ativa: Curva ABC em "
+        f"**{int(criteria['abc_period'])} dias**, A até **{criteria['abc_a']:.0f}%**, "
+        f"B até **{criteria['abc_b']:.0f}%**; cobertura/status sobre **{period_days} dias**."
     )
 
     products, summary = build_line_analysis(base, period_days, criteria)
