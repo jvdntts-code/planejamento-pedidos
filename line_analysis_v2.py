@@ -1148,10 +1148,10 @@ def render_analise_linha():
 
     widget_defaults = st.session_state["line_criteria_saved"]
     widget_keys = {
-        "abc_period": "crit3_abc_period", "abc_a": "crit3_abc_a", "abc_b": "crit3_abc_b",
-        "A_ruptura": "crit3_A_ruptura", "A_abaixo": "crit3_A_abaixo", "A_ok": "crit3_A_ok",
-        "B_ruptura": "crit3_B_ruptura", "B_abaixo": "crit3_B_abaixo", "B_ok": "crit3_B_ok", "B_alto": "crit3_B_alto",
-        "C_ruptura": "crit3_C_ruptura", "C_abaixo": "crit3_C_abaixo", "C_ok": "crit3_C_ok",
+        "abc_period": "crit4_abc_period", "abc_a": "crit4_abc_a", "abc_b": "crit4_abc_b",
+        "A_ruptura": "crit4_A_ruptura", "A_abaixo": "crit4_A_abaixo", "A_ok": "crit4_A_ok",
+        "B_ruptura": "crit4_B_ruptura", "B_abaixo": "crit4_B_abaixo", "B_ok": "crit4_B_ok", "B_alto": "crit4_B_alto",
+        "C_ruptura": "crit4_C_ruptura", "C_abaixo": "crit4_C_abaixo", "C_ok": "crit4_C_ok",
     }
     for name, key in widget_keys.items():
         if key not in st.session_state:
@@ -1160,14 +1160,14 @@ def render_analise_linha():
     def collect_criteria_state():
         return {name: st.session_state[key] for name, key in widget_keys.items()}
 
-    def apply_criteria():
+    def auto_apply_criteria():
         current = collect_criteria_state()
         errors = _criteria_errors(current)
         if errors:
             st.session_state["line_criteria_feedback"] = " | ".join(errors)
             return
         st.session_state["line_criteria_active"] = current.copy()
-        st.session_state["line_criteria_feedback"] = "Critérios aplicados com sucesso."
+        st.session_state["line_criteria_feedback"] = ""
 
     def save_criteria():
         current = collect_criteria_state()
@@ -1189,7 +1189,7 @@ def render_analise_linha():
     with st.sidebar:
         st.markdown("---")
         st.subheader("⚙️ Critérios da análise")
-        st.caption("Configure aqui a Curva ABC e os dias de cobertura. Depois clique em **Aplicar critérios**.")
+        st.caption("Configure aqui a Curva ABC e os dias de cobertura. Alterações válidas recalculam a análise automaticamente.")
 
         st.markdown("**Curva ABC**")
         st.number_input(
@@ -1197,7 +1197,8 @@ def render_analise_linha():
             min_value=1,
             max_value=3650,
             step=1,
-            key="crit_abc_period",
+            key=widget_keys["abc_period"],
+            on_change=auto_apply_criteria,
             help="Digite qualquer período em dias. O mesmo período será usado para Curva ABC, cobertura e status.",
         )
         st.caption(
@@ -1209,14 +1210,16 @@ def render_analise_linha():
             min_value=1.0,
             max_value=99.0,
             step=1.0,
-            key="crit_abc_a",
+            key=widget_keys["abc_a"],
+            on_change=auto_apply_criteria,
         )
         st.number_input(
             "Curva B até (%)",
             min_value=2.0,
             max_value=100.0,
             step=1.0,
-            key="crit_abc_b",
+            key=widget_keys["abc_b"],
+            on_change=auto_apply_criteria,
         )
         st.caption("Curva C = acima do limite da Curva B.")
 
@@ -1225,19 +1228,22 @@ def render_analise_linha():
                 "RUPTURA: abaixo de (dias)",
                 min_value=0,
                 step=1,
-                key="crit_A_ruptura",
+                key=widget_keys["A_ruptura"],
+                on_change=auto_apply_criteria,
             )
             st.number_input(
                 "ABAIXO: abaixo de (dias)",
                 min_value=1,
                 step=1,
-                key="crit_A_abaixo",
+                key=widget_keys["A_abaixo"],
+                on_change=auto_apply_criteria,
             )
             st.number_input(
                 "OK: até (dias)",
                 min_value=1,
                 step=1,
-                key="crit_A_ok",
+                key=widget_keys["A_ok"],
+                on_change=auto_apply_criteria,
             )
             st.caption("Acima do limite de OK = EXCESSO.")
 
@@ -1246,25 +1252,29 @@ def render_analise_linha():
                 "RUPTURA: abaixo de (dias)",
                 min_value=0,
                 step=1,
-                key="crit_B_ruptura",
+                key=widget_keys["B_ruptura"],
+                on_change=auto_apply_criteria,
             )
             st.number_input(
                 "ABAIXO: abaixo de (dias)",
                 min_value=1,
                 step=1,
-                key="crit_B_abaixo",
+                key=widget_keys["B_abaixo"],
+                on_change=auto_apply_criteria,
             )
             st.number_input(
                 "OK: até (dias)",
                 min_value=1,
                 step=1,
-                key="crit_B_ok",
+                key=widget_keys["B_ok"],
+                on_change=auto_apply_criteria,
             )
             st.number_input(
                 "ALTO: até (dias)",
                 min_value=1,
                 step=1,
-                key="crit_B_alto",
+                key=widget_keys["B_alto"],
+                on_change=auto_apply_criteria,
             )
             st.caption("Acima do limite de ALTO = EXCESSO.")
 
@@ -1273,27 +1283,25 @@ def render_analise_linha():
                 "RUPTURA: abaixo de (dias)",
                 min_value=0,
                 step=1,
-                key="crit_C_ruptura",
+                key=widget_keys["C_ruptura"],
+                on_change=auto_apply_criteria,
             )
             st.number_input(
                 "ABAIXO: abaixo de (dias)",
                 min_value=1,
                 step=1,
-                key="crit_C_abaixo",
+                key=widget_keys["C_abaixo"],
+                on_change=auto_apply_criteria,
             )
             st.number_input(
                 "OK: até (dias)",
                 min_value=1,
                 step=1,
-                key="crit_C_ok",
+                key=widget_keys["C_ok"],
+                on_change=auto_apply_criteria,
             )
             st.caption("Acima do limite de OK = EXCESSO.")
 
-        st.button(
-            "✅ Aplicar critérios",
-            use_container_width=True,
-            on_click=apply_criteria,
-        )
         st.button(
             "💾 Salvar como padrão da sessão",
             use_container_width=True,
