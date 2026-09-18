@@ -26,9 +26,12 @@ ORDER_BRANCHES = ["M1","M6","M10","M11","M12","M13","M21","M22","M23","M24","M25
 M20_EXTRA_BRANCHES = ["M14","M15","M16","M17","M18","M19"]
 VCA_BRANCHES = ["M25","M26","M27","M28","M29"]
 SSA_BRANCHES = ["M14","M15","M16","M17","M18","M19"]
+PURCHASE_BRANCHES = ORDER_BRANCHES + SSA_BRANCHES
 BRANCH_LABEL = {
     "M1":"M01 EUN", "M6":"M06 BPS", "M10":"M10 (MANUAL)", "M11":"M11", "M12":"M12",
-    "M13":"M13", "M21":"M21", "M22":"M22", "M23":"M23", "M24":"M24 (MANUAL)",
+    "M13":"M13", "M14":"M14 (MANUAL)", "M15":"M15 (MANUAL)", "M16":"M16 (MANUAL)",
+    "M17":"M17 (MANUAL)", "M18":"M18 (MANUAL)", "M19":"M19 (MANUAL)",
+    "M21":"M21", "M22":"M22", "M23":"M23", "M24":"M24 (MANUAL)",
     "M25":"M25", "M26":"M26", "M27":"M27", "M28":"M28", "M29":"M29", "M35":"M35",
     "M38":"M38 (MANUAL)", "M39":"M39", "M40":"M40", "M41":"M41 (MANUAL)",
     "M45":"M45 (MANUAL)", "M31":"M31"
@@ -195,12 +198,12 @@ with st.sidebar:
     excluir_vca = st.checkbox(
         'Desconsiderar VCA (M25 a M29)',
         value=False,
-        help='Retira M25, M26, M27, M28 e M29 da necessidade das filiais e das vendas usadas no Lead Time/M20.'
+        help='Retira M25, M26, M27, M28 e M29 somente da necessidade de compra dessas lojas. Elas continuam na análise do mínimo da M20 e no histórico de vendas.'
     )
     excluir_ssa = st.checkbox(
         'Desconsiderar SSA (M14 a M19)',
         value=False,
-        help='Retira M14, M15, M16, M17, M18 e M19 das vendas usadas no Lead Time e no cálculo de referência da M20.'
+        help='Retira M14, M15, M16, M17, M18 e M19 somente da necessidade de compra dessas lojas. Elas continuam na análise do mínimo da M20 e no histórico de vendas.'
     )
 
     leadtime_dias = st.number_input(
@@ -254,10 +257,10 @@ with st.sidebar:
     if excluir_ssa:
         regioes_excluidas.append('SSA (M14–M19)')
     if regioes_excluidas:
-        st.caption('Regiões desconsideradas: ' + ', '.join(regioes_excluidas) + '.')
+        st.caption('Sem pedido direto para: ' + ', '.join(regioes_excluidas) + '.')
     else:
-        st.caption('Todas as regiões estão sendo consideradas.')
-    st.caption('Os mínimos das filiais e da M20 continuam sendo calculados e validados, mesmo quando uma região é desconsiderada do pedido.')
+        st.caption('A necessidade de compra de todas as regiões está sendo considerada.')
+    st.caption('Importante: essa seleção afeta somente a necessidade de compra das lojas. As regiões continuam integralmente na análise do mínimo da M20 e no cálculo do Lead Time.')
 
 main = st.file_uploader('1) Importe o relatório do sistema', type=['xlsx','xls','csv'], help='Pode ser o mesmo formato usado na aba Importação da planilha.')
 if not main:
@@ -281,7 +284,7 @@ base = base[base['codigo'].ne('') & base['codigo'].ne('nan')].reset_index(drop=T
 st.success(f'Relatório reconhecido: {len(base)} produtos.')
 
 with st.expander('2) Dados manuais de filiais ausentes no relatório (opcional)'):
-    st.caption('Na planilha, M10, M24, M38, M41 e M45 são manuais. M14 a M19 entram somente no cálculo do mínimo da M20.')
+    st.caption('M10, M24, M38, M41 e M45 são manuais. M14 a M19 também podem ter necessidade de compra calculada pelos dados manuais e sempre continuam na análise do mínimo da M20.')
     manual_up = st.file_uploader('Importar dados manuais', type=['xlsx','xls','csv'], key='manual')
     st.download_button(
         'Baixar modelo de dados manuais',
@@ -324,7 +327,7 @@ for _, r in base.iterrows():
     necessidade_total = 0.0
     vendas90_filiais_base = 0.0
 
-    for b in ORDER_BRANCHES:
+    for b in PURCHASE_BRANCHES:
         if b in REPORT_BRANCHES:
             estoque = float(r[f'estoque_{b}'])
             minimo = float(r[f'minimo_{b}'])
@@ -341,23 +344,28 @@ for _, r in base.iterrows():
         status_min = 'CORRIGIR' if minimo < v90 else 'OK'
         buy_calculado = float(qtd_comprar([estoque],[min_valid],[v30])[0])
 
-        filial_excluida = excluir_vca and b in VCA_BRANCHES
+        filial_excluida = (excluir_vca and b in VCA_BRANCHES) or (excluir_ssa and b in SSA_BRANCHES)
         buy_aplicado = 0.0 if filial_excluida else buy_calculado
-        v90_aplicado = 0.0 if filial_excluida else v90
 
         necessidade_total += buy_aplicado
-        vendas90_filiais_base += v90_aplicado
+
+        # Para a análise da M20, as regiões continuam sempre consideradas.
+        # M14-M19 são somadas separadamente abaixo para preservar a regra original.
+        if b not in SSA_BRANCHES:
+            vendas90_filiais_base += v90
+
+        regiao = 'VCA' if b in VCA_BRANCHES else ('SSA' if b in SSA_BRANCHES else 'Demais')
 
         min_rows.append({
             'Codigo':codigo,'Referencia':r.referencia,'Descricao':r.descricao,'Marca':r.marca,
-            'Filial':BRANCH_LABEL[b],'Regiao':'VCA' if b in VCA_BRANCHES else 'Demais',
-            'Considerada no Pedido':'Não' if filial_excluida else 'Sim',
+            'Filial':BRANCH_LABEL[b],'Regiao':regiao,
+            'Considerada na Necessidade de Compra':'Não' if filial_excluida else 'Sim',
             'Vendas 90d':v90,'Minimo Atual':minimo,'Minimo Validado':min_valid,'Status':status_min
         })
         need_rows.append({
             'Codigo':codigo,'Referencia':r.referencia,'Descricao':r.descricao,'Filial':BRANCH_LABEL[b],
-            'Regiao':'VCA' if b in VCA_BRANCHES else 'Demais',
-            'Considerada no Pedido':'Não' if filial_excluida else 'Sim',
+            'Regiao':regiao,
+            'Considerada na Necessidade de Compra':'Não' if filial_excluida else 'Sim',
             'Estoque Atual':estoque,'Minimo Validado':min_valid,'Vendas 30d':v30,
             'Qtd Comprar Calculada':buy_calculado,'Qtd Comprar Aplicada':buy_aplicado
         })
@@ -367,7 +375,9 @@ for _, r in base.iterrows():
         mr = manual_lookup.get((codigo,b))
         vendas90_extras_calculada += float(mr.v90) if mr is not None else 0.0
 
-    vendas90_extras = 0.0 if excluir_ssa else vendas90_extras_calculada
+    # SSA nunca é retirada da análise da M20; a caixa regional afeta somente
+    # a necessidade de compra direta das lojas.
+    vendas90_extras = vendas90_extras_calculada
 
     vendas90_m30 = float(r['v90_M30'])
     grupo_25 = vendas90_filiais_base + vendas90_extras + vendas90_m30
@@ -393,11 +403,10 @@ for _, r in base.iterrows():
 
     m20_rows.append({
         'Codigo':codigo,'Referencia':r.referencia,'Descricao':r.descricao,'Marca':r.marca,
-        'Vendas 90d Filiais Base Consideradas':vendas90_filiais_base,
-        'M14-M19 Vendas 90d Calculadas':vendas90_extras_calculada,
-        'M14-M19 Vendas 90d Consideradas':vendas90_extras,
-        'VCA Desconsiderada':'Sim' if excluir_vca else 'Não',
-        'SSA Desconsiderada':'Sim' if excluir_ssa else 'Não',
+        'Vendas 90d Filiais Base M20':vendas90_filiais_base,
+        'M14-M19 Vendas 90d M20':vendas90_extras,
+        'VCA sem Pedido Direto':'Sim' if excluir_vca else 'Não',
+        'SSA sem Pedido Direto':'Sim' if excluir_ssa else 'Não',
         'M30 Vendas 90d':vendas90_m30,'Vendas 90d Grupo p/ Percentual':grupo_25,
         'Percentual Base':pct_m20,'Minimo M20 Atual':minimo_m20_atual,'Minimo M20 Correto':minimo_m20_correto,
         'Status':'OK' if minimo_m20_atual == minimo_m20_correto else 'AJUSTAR',
@@ -409,8 +418,8 @@ for _, r in base.iterrows():
         'Codigo':codigo,'Referencia':r.referencia,'Descricao':r.descricao,'Marca':r.marca,
         'Emb. Compra':int(r.emb_compra),
         'Necessidade Geral Filiais Consideradas':necessidade_total,
-        'VCA Desconsiderada':'Sim' if excluir_vca else 'Não',
-        'SSA Desconsiderada':'Sim' if excluir_ssa else 'Não',
+        'VCA sem Pedido Direto':'Sim' if excluir_vca else 'Não',
+        'SSA sem Pedido Direto':'Sim' if excluir_ssa else 'Não',
         'Necessidade Aplicada':necessidade_aplicada,
         'Lead Time Geral (dias)':leadtime_dias,
         'Media Diaria Grupo 90d':media_diaria_grupo,
@@ -502,4 +511,4 @@ st.download_button(
     type='primary'
 )
 
-st.caption('Os mínimos das filiais continuam validados pelo maior valor entre mínimo cadastrado e vendas de 90 dias. VCA (M25–M29) e SSA (M14–M19) podem ser desconsideradas separadamente na configuração. O mínimo da M20 continua calculado para acompanhamento. O pedido final usa somente as regiões e opções ativas, e depois arredonda pela embalagem de compra.')
+st.caption('Os mínimos das filiais continuam validados pelo maior valor entre mínimo cadastrado e vendas de 90 dias. As caixas de VCA (M25–M29) e SSA (M14–M19) retiram somente a necessidade de compra direta dessas lojas. Todas elas continuam compondo normalmente a análise do mínimo da M20 e o histórico usado no Lead Time. O pedido final é arredondado pela embalagem de compra.')
