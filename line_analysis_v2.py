@@ -157,6 +157,30 @@ def standardize_line_report(df):
     return out, long_days
 
 
+def sales_for_period(df, days, long_days):
+    """Estima vendas acumuladas para qualquer período usando os pontos 30/60/90/longo."""
+    days = max(int(days), 1)
+
+    v30 = pd.to_numeric(df["vendas30"], errors="coerce").fillna(0).astype(float)
+    v60 = pd.to_numeric(df["vendas60"], errors="coerce").fillna(0).astype(float)
+    v90 = pd.to_numeric(df["vendas90"], errors="coerce").fillna(0).astype(float)
+    vlong = pd.to_numeric(df["vendas_longo"], errors="coerce").fillna(0).astype(float)
+
+    if days <= 30:
+        result = v30 * (days / 30.0)
+    elif days <= 60:
+        result = v30 + (v60 - v30) * ((days - 30) / 30.0)
+    elif days <= 90:
+        result = v60 + (v90 - v60) * ((days - 60) / 30.0)
+    elif days <= long_days:
+        span = max(long_days - 90, 1)
+        result = v90 + (vlong - v90) * ((days - 90) / float(span))
+    else:
+        result = vlong * (days / float(max(long_days, 1)))
+
+    return result.clip(lower=0)
+
+
 def abc_with_ties(revenue, cut_a=80.0, cut_b=95.0):
     revenue = pd.to_numeric(revenue, errors="coerce").fillna(0)
     total = float(revenue.sum())
@@ -223,28 +247,22 @@ def giro_curva_c(stock, sales, days, curve):
     return "EXCESSO"
 
 
-def build_line_analysis(base, period_days, criteria):
+def build_line_analysis(base, period_days, criteria, long_days):
     x = base.copy()
 
-    if period_days == 90:
-        x["vendas_periodo"] = x["vendas90"]
-        x["faturamento_periodo"] = x["faturamento_90"]
-    else:
-        x["vendas_periodo"] = x["vendas_longo"]
-        x["faturamento_periodo"] = x["faturamento_longo"]
+    x["vendas_periodo"] = sales_for_period(x, period_days, long_days)
+    x["faturamento_periodo"] = x["vendas_periodo"] * x["preco_venda"]
 
-    abc_period = int(criteria["abc_period"])
-    abc_revenue = x["faturamento_90"] if abc_period == 90 else x["faturamento_longo"]
     x["curva_abc"], x["participacao_acumulada"] = abc_with_ties(
-        abc_revenue,
+        x["faturamento_periodo"],
         criteria["abc_a"],
         criteria["abc_b"],
     )
 
-    total_abc = float(abc_revenue.sum())
+    total_abc = float(x["faturamento_periodo"].sum())
     x["participacao_faturamento"] = np.where(
         total_abc != 0,
-        abc_revenue / total_abc,
+        x["faturamento_periodo"] / total_abc,
         0,
     )
     x["media_diaria"] = x["vendas_periodo"] / float(period_days)
@@ -269,6 +287,7 @@ def build_line_analysis(base, period_days, criteria):
     keys = ["linha_codigo", "linha_nome", "linha"]
     summary = x.groupby(keys, as_index=False).agg(
         itens=("codigo", "count"),
+        faturamento_analise=("faturamento_periodo", "sum"),
         faturamento_90=("faturamento_90", "sum"),
         faturamento_longo=("faturamento_longo", "sum"),
         estoque_lojas=("estoque", "sum"),
@@ -354,8 +373,7 @@ def build_line_analysis(base, period_days, criteria):
         0,
     )
 
-    sort_col = "faturamento_90" if period_days == 90 else "faturamento_longo"
-    summary = summary.sort_values(sort_col, ascending=False).reset_index(drop=True)
+    summary = summary.sort_values("faturamento_analise", ascending=False).reset_index(drop=True)
     return x, summary
 
 
@@ -743,11 +761,11 @@ def formatted_xlsx_bytes(
         raw.to_excel(writer, sheet_name="DADOS BRUTOS", index=False)
         criteria_df = pd.DataFrame({
             "Critério": [
-                "Período Curva ABC", "Curva A até", "Curva B até",
+                "Período único da análise", "Curva A até", "Curva B até",
                 "A - Ruptura até", "A - Abaixo até", "A - OK até",
                 "B - Ruptura até", "B - Abaixo até", "B - OK até", "B - Alto até",
                 "C - Ruptura até", "C - Abaixo até", "C - OK até",
-                "Período usado na cobertura/status",
+                "Cobertura/status usam o mesmo período",
             ],
             "Valor": [
                 f"{int(criteria['abc_period'])} dias", f"{criteria['abc_a']:.1f}%", f"{criteria['abc_b']:.1f}%",
@@ -777,7 +795,7 @@ def formatted_xlsx_bytes(
         ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
 
         ws.merge_cells("A3:L3")
-        ws["A3"] = f"{analysis_name}  |  Cobertura: {period_days}d  |  Curva ABC: {int(criteria['abc_period'])}d"
+        ws["A3"] = f"{analysis_name}  |  Período único da análise: {period_days} dias"
         ws["A3"].fill = PatternFill("solid", fgColor=LIGHT_BLUE)
         ws["A3"].font = Font(color=NAVY, bold=True, size=11)
         ws["A3"].alignment = Alignment(horizontal="center")
@@ -1070,6 +1088,8 @@ def formatted_xlsx_bytes(
 
 def _criteria_errors(criteria):
     errors = []
+    if int(criteria["abc_period"]) < 1:
+        errors.append("O período da análise deve ser maior que zero.")
     if not (0 < float(criteria["abc_a"]) < float(criteria["abc_b"]) <= 100):
         errors.append("Os cortes da Curva ABC devem seguir A < B e B ≤ 100%.")
     for curve in ("A", "C"):
@@ -1110,19 +1130,11 @@ def render_analise_linha():
         st.error(str(exc))
         return
 
-    a1, a2 = st.columns([2, 1])
-    analysis_name = a1.text_input(
+    analysis_name = st.text_input(
         "Nome da análise / marca",
         value=uploaded.name.rsplit(".", 1)[0],
         key="nome_analise_linha_v2",
     )
-    period_label = a2.radio(
-        "Período principal",
-        ["90 dias", f"{long_days} dias"],
-        horizontal=True,
-        key="periodo_linha_v2",
-    )
-    period_days = 90 if period_label == "90 dias" else long_days
 
     if "line_criteria_saved" not in st.session_state:
         st.session_state["line_criteria_saved"] = DEFAULT_CRITERIA.copy()
@@ -1163,11 +1175,17 @@ def render_analise_linha():
         st.caption("Configure aqui a Curva ABC e os dias de cobertura. Depois clique em **Aplicar critérios**.")
 
         st.markdown("**Curva ABC**")
-        st.selectbox(
-            "Período da Curva ABC",
-            [90, long_days],
-            format_func=lambda x: f"{x} dias",
+        st.number_input(
+            "Período da análise (dias)",
+            min_value=1,
+            max_value=3650,
+            step=1,
             key="crit_abc_period",
+            help="Digite qualquer período em dias. O mesmo período será usado para Curva ABC, cobertura e status.",
+        )
+        st.caption(
+            f"O relatório possui históricos de 30, 60, 90 e {long_days} dias. "
+            "Períodos intermediários são estimados proporcionalmente entre esses pontos."
         )
         st.number_input(
             "Curva A até (%)",
@@ -1271,6 +1289,7 @@ def render_analise_linha():
         )
 
     criteria = st.session_state["line_criteria_active"].copy()
+    period_days = int(criteria["abc_period"])
     errors = _criteria_errors(criteria)
     if errors:
         for error in errors:
@@ -1278,13 +1297,13 @@ def render_analise_linha():
         st.stop()
 
     st.info(
-        f"⚙️ **Critérios no menu lateral** — Regra ativa: Curva ABC em "
-        f"**{int(criteria['abc_period'])} dias**, A até **{criteria['abc_a']:.0f}%**, "
-        f"B até **{criteria['abc_b']:.0f}%**; cobertura/status sobre **{period_days} dias**."
+        f"⚙️ **Critérios no menu lateral** — Período único da análise: "
+        f"**{period_days} dias** • A até **{criteria['abc_a']:.0f}%** • "
+        f"B até **{criteria['abc_b']:.0f}%**. O mesmo período define Curva ABC, cobertura e status."
     )
 
-    products, summary = build_line_analysis(base, period_days, criteria)
-    revenue_col = "faturamento_90" if period_days == 90 else "faturamento_longo"
+    products, summary = build_line_analysis(base, period_days, criteria, long_days)
+    revenue_col = "faturamento_analise"
 
     total_revenue = float(products["faturamento_periodo"].sum())
     total_stock = float(products["estoque"].sum())
@@ -1524,7 +1543,7 @@ def render_analise_linha():
         )
 
     with tab3:
-        st.markdown(f"**Curva ABC:** baseada no faturamento de **{int(criteria['abc_period'])} dias**. A até **{criteria['abc_a']:.0f}%**, B até **{criteria['abc_b']:.0f}%**, C acima disso.")
+        st.markdown(f"**Período único:** **{period_days} dias** para Curva ABC, cobertura e status. A até **{criteria['abc_a']:.0f}%**, B até **{criteria['abc_b']:.0f}%**, C acima disso.")
         st.markdown(
             f"**Curva A:** <{criteria['A_ruptura']} dias RUPTURA; "
             f"{criteria['A_ruptura']}–<{criteria['A_abaixo']} ABAIXO; "
