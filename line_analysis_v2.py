@@ -1,13 +1,14 @@
 import io
 import re
+import textwrap
 import unicodedata
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import streamlit as st
 
-from openpyxl.chart import PieChart, Reference
-from openpyxl.chart.label import DataLabelList
+from openpyxl.drawing.image import Image as XLImage
 from openpyxl.formatting.rule import ColorScaleRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
@@ -762,6 +763,103 @@ def _write_card(ws, col_start, col_end, row_start, title, value, fill_color):
     value_cell.alignment = Alignment(horizontal="center", vertical="center")
 
 
+def _excel_pie_image(
+    labels,
+    values,
+    title,
+    description,
+    colors=None,
+):
+    labels = [str(x) for x in labels]
+    values = [float(x) for x in values]
+
+    filtered = [
+        (label, value, i)
+        for i, (label, value) in enumerate(zip(labels, values))
+        if value > 0
+    ]
+    if not filtered:
+        filtered = [("Sem dados", 1.0, 0)]
+
+    labels = [x[0] for x in filtered]
+    values = [x[1] for x in filtered]
+    idxs = [x[2] for x in filtered]
+
+    if colors:
+        palette = [colors[i % len(colors)] for i in idxs]
+    else:
+        palette = LINE_CHART_COLORS[: len(values)]
+        if len(palette) < len(values):
+            palette = [
+                LINE_CHART_COLORS[i % len(LINE_CHART_COLORS)]
+                for i in range(len(values))
+            ]
+
+    fig, ax = plt.subplots(figsize=(7.2, 4.7), dpi=150)
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("white")
+
+    def autopct(pct):
+        return f"{pct:.1f}%" if pct >= 3 else ""
+
+    wedges, _, autotexts = ax.pie(
+        values,
+        startangle=90,
+        counterclock=False,
+        colors=palette,
+        autopct=autopct,
+        pctdistance=0.72,
+        wedgeprops={"edgecolor": "white", "linewidth": 1.2},
+    )
+
+    for txt in autotexts:
+        txt.set_fontsize(8)
+        txt.set_color("#111827")
+        txt.set_weight("bold")
+
+    ax.axis("equal")
+    ax.legend(
+        wedges,
+        labels,
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.18),
+        ncol=2,
+        frameon=False,
+        fontsize=7,
+        handlelength=1.0,
+        columnspacing=1.2,
+    )
+
+    fig.suptitle(
+        title,
+        fontsize=13,
+        fontweight="bold",
+        color="#17365D",
+        y=0.98,
+    )
+    fig.text(
+        0.5,
+        0.91,
+        textwrap.fill(description, width=78),
+        ha="center",
+        va="top",
+        fontsize=8.2,
+        color="#475569",
+    )
+    fig.subplots_adjust(top=0.82, bottom=0.25, left=0.06, right=0.94)
+
+    buffer = io.BytesIO()
+    fig.savefig(
+        buffer,
+        format="png",
+        bbox_inches="tight",
+        facecolor="white",
+    )
+    plt.close(fig)
+    buffer.seek(0)
+    return buffer
+
+
 def formatted_xlsx_bytes(
     summary,
     products,
@@ -794,7 +892,7 @@ def formatted_xlsx_bytes(
         else 0
     )
 
-    revenue_col = "faturamento_90" if period_days == 90 else "faturamento_longo"
+    revenue_col = "faturamento_analise"
     best_sales = summary.loc[summary[revenue_col].idxmax()] if not summary.empty else None
     biggest_excess = (
         summary.loc[summary["valor_alto_excesso"].idxmax()]
@@ -898,108 +996,81 @@ def formatted_xlsx_bytes(
             ws.cell(offset, 1).alignment = Alignment(wrap_text=True)
             ws.cell(offset, 1).font = Font(size=10)
 
-        # Base dos gráficos (colunas ocultas).
-        start = 2
-        ws["N1"] = "Linha"
-        ws["O1"] = f"Faturamento {period_days}d"
-        ws["Q1"] = "Linha"
-        ws["R1"] = "Valor Estoque"
-        for i, row in summary.iterrows():
-            excel_row = start + i
-            ws.cell(excel_row, 14).value = row["linha"]
-            ws.cell(excel_row, 15).value = float(row[revenue_col])
-            ws.cell(excel_row, 17).value = row["linha"]
-            ws.cell(excel_row, 18).value = float(row["valor_estoque"])
+        # Gráficos como imagens para máxima compatibilidade com versões do Excel.
+        line_labels = summary["linha"].tolist()
+        line_colors = [
+            LINE_CHART_COLORS[i % len(LINE_CHART_COLORS)]
+            for i in range(len(line_labels))
+        ]
 
         status_counts = products["status"].value_counts()
-        ws["U1"] = "Status"
-        ws["V1"] = "Itens"
-        for i, (status, qty) in enumerate(status_counts.items(), start=2):
-            ws.cell(i, 21).value = status
-            ws.cell(i, 22).value = int(qty)
+        status_color_map = dict(zip(STATUS_COLOR_DOMAIN, STATUS_COLOR_RANGE))
+        status_colors = [
+            status_color_map.get(status, "#94A3B8")
+            for status in status_counts.index
+        ]
 
-        abc_counts = products["curva_abc"].value_counts().reindex(["A", "B", "C"], fill_value=0)
-        ws["X1"] = "Curva ABC"
-        ws["Y1"] = "Itens"
-        for i, (curva, qty) in enumerate(abc_counts.items(), start=2):
-            ws.cell(i, 24).value = curva
-            ws.cell(i, 25).value = int(qty)
+        abc_counts = (
+            products["curva_abc"]
+            .value_counts()
+            .reindex(["A", "B", "C"], fill_value=0)
+        )
+        abc_color_map = dict(zip(ABC_COLOR_DOMAIN, ABC_COLOR_RANGE))
+        abc_colors = [
+            abc_color_map.get(curva, "#94A3B8")
+            for curva in abc_counts.index
+        ]
 
-        max_line_row = 1 + len(summary)
+        chart_buffers = []
 
-        chart1 = PieChart()
-        chart1.style = 10
-        chart1.title = f"Participação do Faturamento por Linha — {period_days} dias"
-        chart1.height = 8
-        chart1.width = 14
-        chart1.add_data(
-            Reference(ws, min_col=15, min_row=1, max_row=max_line_row),
-            titles_from_data=True,
+        chart_buffers.append(
+            _excel_pie_image(
+                line_labels,
+                summary[revenue_col].tolist(),
+                f"Participação do faturamento por linha — {period_days} dias",
+                "Mostra quanto cada linha representa do faturamento total no período escolhido.",
+                line_colors,
+            )
         )
-        chart1.set_categories(
-            Reference(ws, min_col=14, min_row=2, max_row=max_line_row)
+        chart_buffers.append(
+            _excel_pie_image(
+                line_labels,
+                summary["valor_estoque"].tolist(),
+                "Participação do valor do estoque por linha",
+                "Mostra onde está concentrado o capital em estoque entre as linhas.",
+                line_colors,
+            )
         )
-        chart1.dataLabels = DataLabelList()
-        chart1.dataLabels.showPercent = True
-        chart1.dataLabels.showLeaderLines = True
-        ws.add_chart(chart1, "A19")
+        chart_buffers.append(
+            _excel_pie_image(
+                status_counts.index.tolist(),
+                status_counts.values.tolist(),
+                "Distribuição dos produtos por status",
+                "Mostra a quantidade de SKUs em Ruptura, Risco, OK, Alto, Excesso e situações sem venda.",
+                status_colors,
+            )
+        )
+        chart_buffers.append(
+            _excel_pie_image(
+                abc_counts.index.tolist(),
+                abc_counts.values.tolist(),
+                "Distribuição Curva ABC",
+                "Mostra quantos SKUs estão nas Curvas A, B e C conforme a participação no faturamento.",
+                abc_colors,
+            )
+        )
 
-        chart2 = PieChart()
-        chart2.style = 11
-        chart2.title = "Participação do Valor de Estoque por Linha"
-        chart2.height = 8
-        chart2.width = 14
-        chart2.add_data(
-            Reference(ws, min_col=18, min_row=1, max_row=max_line_row),
-            titles_from_data=True,
-        )
-        chart2.set_categories(
-            Reference(ws, min_col=17, min_row=2, max_row=max_line_row)
-        )
-        chart2.dataLabels = DataLabelList()
-        chart2.dataLabels.showPercent = True
-        chart2.dataLabels.showLeaderLines = True
-        ws.add_chart(chart2, "G19")
+        chart_positions = ["A19", "G19", "A40", "G40"]
+        for buffer, position in zip(chart_buffers, chart_positions):
+            image = XLImage(buffer)
+            image.width = 620
+            image.height = 385
+            ws.add_image(image, position)
 
-        status_last = 1 + len(status_counts)
-        chart3 = PieChart()
-        chart3.style = 10
-        chart3.title = "Distribuição dos SKUs por Status"
-        chart3.height = 8
-        chart3.width = 14
-        chart3.add_data(
-            Reference(ws, min_col=22, min_row=1, max_row=status_last),
-            titles_from_data=True,
-        )
-        chart3.set_categories(
-            Reference(ws, min_col=21, min_row=2, max_row=status_last)
-        )
-        chart3.dataLabels = DataLabelList()
-        chart3.dataLabels.showPercent = True
-        chart3.dataLabels.showLeaderLines = True
-        ws.add_chart(chart3, "A35")
-
-        chart4 = PieChart()
-        chart4.style = 10
-        chart4.title = "Distribuição Curva ABC"
-        chart4.height = 8
-        chart4.width = 14
-        chart4.add_data(
-            Reference(ws, min_col=25, min_row=1, max_row=4),
-            titles_from_data=True,
-        )
-        chart4.set_categories(
-            Reference(ws, min_col=24, min_row=2, max_row=4)
-        )
-        chart4.dataLabels = DataLabelList()
-        chart4.dataLabels.showPercent = True
-        chart4.dataLabels.showLeaderLines = True
-        ws.add_chart(chart4, "G35")
-
-        ws.merge_cells("A51:L51")
-        ws["A51"] = "COMO LER O RELATÓRIO"
-        ws["A51"].fill = PatternFill("solid", fgColor=NAVY)
-        ws["A51"].font = Font(color=WHITE, bold=True)
+        ws.merge_cells("A62:L62")
+        ws["A62"] = "COMO LER O RELATÓRIO"
+        ws["A62"].fill = PatternFill("solid", fgColor=NAVY)
+        ws["A62"].font = Font(color=WHITE, bold=True)
         guide = [
             ("RUPTURA", "Cobertura abaixo do limite definido para a curva."),
             ("RISCO RUPTURA", "Cobertura baixa, próxima da faixa de ruptura."),
@@ -1007,15 +1078,12 @@ def formatted_xlsx_bytes(
             ("ALTO / EXCESSO", "Capital acima da faixa de cobertura."),
             ("PARADO", "Saldo positivo sem venda no período."),
         ]
-        for row_num, (label, desc) in enumerate(guide, start=52):
+        for row_num, (label, desc) in enumerate(guide, start=63):
             ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3)
             ws.merge_cells(start_row=row_num, start_column=4, end_row=row_num, end_column=12)
             ws.cell(row_num, 1).value = label
             ws.cell(row_num, 1).font = Font(bold=True)
             ws.cell(row_num, 4).value = desc
-
-        for col in range(14, 26):
-            ws.column_dimensions[get_column_letter(col)].hidden = True
 
         # Demais abas.
         for sheet_name in ("RESUMO LINHAS", "PRODUTOS", "ALTO EXCESSO", "ESTOQUE PARADO"):
