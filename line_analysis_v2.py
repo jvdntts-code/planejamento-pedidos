@@ -30,6 +30,22 @@ LIGHT_GRAY = "F2F2F2"
 DARK = "1F1F1F"
 WHITE = "FFFFFF"
 
+DEFAULT_CRITERIA = {
+    "abc_period": 90,
+    "abc_a": 80.0,
+    "abc_b": 95.0,
+    "A_ruptura": 30,
+    "A_abaixo": 90,
+    "A_ok": 180,
+    "B_ruptura": 30,
+    "B_abaixo": 90,
+    "B_ok": 120,
+    "B_alto": 150,
+    "C_ruptura": 30,
+    "C_abaixo": 90,
+    "C_ok": 120,
+}
+
 
 def norm(value):
     value = str(value).strip().lower()
@@ -141,7 +157,7 @@ def standardize_line_report(df):
     return out, long_days
 
 
-def abc_with_ties(revenue):
+def abc_with_ties(revenue, cut_a=80.0, cut_b=95.0):
     revenue = pd.to_numeric(revenue, errors="coerce").fillna(0)
     total = float(revenue.sum())
     if total <= 0:
@@ -150,51 +166,42 @@ def abc_with_ties(revenue):
             pd.Series([1.0] * len(revenue), index=revenue.index),
         )
 
+    cut_a = float(cut_a) / 100.0
+    cut_b = float(cut_b) / 100.0
     totals_by_value = revenue.groupby(revenue).sum().sort_index(ascending=False)
     cumulative_by_value = (totals_by_value.cumsum() / total).to_dict()
     accumulated = revenue.map(cumulative_by_value).fillna(1.0)
     curve = np.select(
-        [accumulated <= 0.80, accumulated <= 0.95],
+        [accumulated <= cut_a, accumulated <= cut_b],
         ["A", "B"],
         default="C",
     )
     return pd.Series(curve, index=revenue.index), accumulated
 
 
-def classify_coverage(stock, sales, days, curve):
+def classify_coverage(stock, sales, days, curve, criteria):
     if stock < 0:
         return "ESTOQUE NEGATIVO"
     if sales <= 0:
         return "SEM VENDA - ESTOQUE PARADO" if stock > 0 else "SEM VENDA / SEM ESTOQUE"
 
     coverage = stock / (sales / days)
+    ruptura = float(criteria[f"{curve}_ruptura"])
+    abaixo = float(criteria[f"{curve}_abaixo"])
+    ok_max = float(criteria[f"{curve}_ok"])
 
-    if curve == "A":
-        if coverage < 30:
-            return "PERIGOSO"
-        if coverage < 90:
-            return "ABAIXO DO RECOMENDADO"
-        if coverage <= 180:
-            return "OK"
-        return "EXCESSO"
+    if coverage < ruptura:
+        return "RUPTURA"
+    if coverage < abaixo:
+        return "ABAIXO DO RECOMENDADO"
+    if coverage <= ok_max:
+        return "OK"
 
     if curve == "B":
-        if coverage < 30:
-            return "PERIGOSO"
-        if coverage < 90:
-            return "ABAIXO DO RECOMENDADO"
-        if coverage <= 120:
-            return "OK"
-        if coverage <= 150:
+        alto_max = float(criteria["B_alto"])
+        if coverage <= alto_max:
             return "ALTO"
-        return "EXCESSO"
 
-    if coverage < 30:
-        return "PERIGOSO"
-    if coverage < 90:
-        return "ABAIXO DO RECOMENDADO"
-    if coverage <= 120:
-        return "OK"
     return "EXCESSO"
 
 
@@ -216,7 +223,7 @@ def giro_curva_c(stock, sales, days, curve):
     return "EXCESSO"
 
 
-def build_line_analysis(base, period_days):
+def build_line_analysis(base, period_days, criteria):
     x = base.copy()
 
     if period_days == 90:
@@ -226,14 +233,18 @@ def build_line_analysis(base, period_days):
         x["vendas_periodo"] = x["vendas_longo"]
         x["faturamento_periodo"] = x["faturamento_longo"]
 
+    abc_period = int(criteria["abc_period"])
+    abc_revenue = x["faturamento_90"] if abc_period == 90 else x["faturamento_longo"]
     x["curva_abc"], x["participacao_acumulada"] = abc_with_ties(
-        x["faturamento_periodo"]
+        abc_revenue,
+        criteria["abc_a"],
+        criteria["abc_b"],
     )
 
-    total_fat = float(x["faturamento_periodo"].sum())
+    total_abc = float(abc_revenue.sum())
     x["participacao_faturamento"] = np.where(
-        total_fat != 0,
-        x["faturamento_periodo"] / total_fat,
+        total_abc != 0,
+        abc_revenue / total_abc,
         0,
     )
     x["media_diaria"] = x["vendas_periodo"] / float(period_days)
@@ -243,7 +254,7 @@ def build_line_analysis(base, period_days):
         np.nan,
     )
     x["status"] = [
-        classify_coverage(float(stock), float(sales), period_days, curve)
+        classify_coverage(float(stock), float(sales), period_days, curve, criteria)
         for stock, sales, curve in zip(
             x["estoque"], x["vendas_periodo"], x["curva_abc"]
         )
@@ -284,7 +295,7 @@ def build_line_analysis(base, period_days):
         summary = summary.merge(grouped(mask, source, name, op), on=keys, how="left")
 
     status_columns = {
-        "PERIGOSO": "perigoso",
+        "RUPTURA": "ruptura",
         "ABAIXO DO RECOMENDADO": "abaixo_recomendado",
         "OK": "ok",
         "ALTO": "alto",
@@ -392,7 +403,7 @@ def _friendly_summary(summary, long_days):
             "valor_estoque",
             "valor_alto_excesso",
             "valor_parado",
-            "perigoso",
+            "ruptura",
             "abaixo_recomendado",
             "ok",
             "alto",
@@ -413,7 +424,7 @@ def _friendly_summary(summary, long_days):
         "Valor Estoque",
         "Valor Alto/Excesso",
         "Valor Parado",
-        "Perigoso",
+        "Ruptura",
         "Abaixo Recomend.",
         "OK",
         "Alto",
@@ -554,7 +565,7 @@ def _format_sheet(
                 ws.cell(r, col).number_format = '0.0'
 
     status_fills = {
-        "PERIGOSO": PatternFill("solid", fgColor=LIGHT_RED),
+        "RUPTURA": PatternFill("solid", fgColor=LIGHT_RED),
         "ABAIXO DO RECOMENDADO": PatternFill("solid", fgColor=LIGHT_YELLOW),
         "OK": PatternFill("solid", fgColor=LIGHT_GREEN),
         "ALTO": PatternFill("solid", fgColor=LIGHT_ORANGE),
@@ -635,6 +646,7 @@ def formatted_xlsx_bytes(
     period_days,
     long_days,
     analysis_name,
+    criteria,
 ):
     output = io.BytesIO()
     summary_export = _friendly_summary(summary, long_days)
@@ -678,6 +690,23 @@ def formatted_xlsx_bytes(
         excess_export.to_excel(writer, sheet_name="ALTO EXCESSO", index=False, startrow=3)
         stopped_export.to_excel(writer, sheet_name="ESTOQUE PARADO", index=False, startrow=3)
         raw.to_excel(writer, sheet_name="DADOS BRUTOS", index=False)
+        criteria_df = pd.DataFrame({
+            "Critério": [
+                "Período Curva ABC", "Curva A até", "Curva B até",
+                "A - Ruptura até", "A - Abaixo até", "A - OK até",
+                "B - Ruptura até", "B - Abaixo até", "B - OK até", "B - Alto até",
+                "C - Ruptura até", "C - Abaixo até", "C - OK até",
+                "Período usado na cobertura/status",
+            ],
+            "Valor": [
+                f"{int(criteria['abc_period'])} dias", f"{criteria['abc_a']:.1f}%", f"{criteria['abc_b']:.1f}%",
+                f"{criteria['A_ruptura']} dias", f"{criteria['A_abaixo']} dias", f"{criteria['A_ok']} dias",
+                f"{criteria['B_ruptura']} dias", f"{criteria['B_abaixo']} dias", f"{criteria['B_ok']} dias", f"{criteria['B_alto']} dias",
+                f"{criteria['C_ruptura']} dias", f"{criteria['C_abaixo']} dias", f"{criteria['C_ok']} dias",
+                f"{period_days} dias",
+            ],
+        })
+        criteria_df.to_excel(writer, sheet_name="CRITERIOS", index=False)
 
         wb = writer.book
         ws = wb.create_sheet("DASHBOARD", 0)
@@ -697,7 +726,7 @@ def formatted_xlsx_bytes(
         ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
 
         ws.merge_cells("A3:L3")
-        ws["A3"] = f"{analysis_name}  |  Período principal: {period_days} dias"
+        ws["A3"] = f"{analysis_name}  |  Cobertura: {period_days}d  |  Curva ABC: {int(criteria['abc_period'])}d"
         ws["A3"].fill = PatternFill("solid", fgColor=LIGHT_BLUE)
         ws["A3"].font = Font(color=NAVY, bold=True, size=11)
         ws["A3"].alignment = Alignment(horizontal="center")
@@ -819,7 +848,7 @@ def formatted_xlsx_bytes(
         ws["G35"].fill = PatternFill("solid", fgColor=NAVY)
         ws["G35"].font = Font(color=WHITE, bold=True)
         guide = [
-            ("A36", "PERIGOSO", "Cobertura muito baixa; atenção imediata."),
+            ("A36", "RUPTURA", "Cobertura abaixo do limite definido para a curva."),
             ("A37", "ABAIXO", "Abaixo da faixa recomendada."),
             ("A38", "OK", "Estoque dentro da faixa esperada."),
             ("A39", "ALTO / EXCESSO", "Capital acima da faixa de cobertura."),
@@ -927,6 +956,14 @@ def formatted_xlsx_bytes(
         _auto_width(raw_ws)
         raw_ws.auto_filter.ref = raw_ws.dimensions
 
+        crit_ws = wb["CRITERIOS"]
+        crit_ws.sheet_view.showGridLines = False
+        crit_ws.freeze_panes = "A2"
+        _style_header(crit_ws, 1)
+        _auto_width(crit_ws, min_width=18, max_width=38)
+        crit_ws.column_dimensions["A"].width = 34
+        crit_ws.column_dimensions["B"].width = 22
+
         # Escala visual na tabela gerencial.
         resumo_ws = wb["RESUMO LINHAS"]
         header_map = {
@@ -950,6 +987,24 @@ def formatted_xlsx_bytes(
             )
 
     return output.getvalue()
+
+
+def _criteria_errors(criteria):
+    errors = []
+    if not (0 < float(criteria["abc_a"]) < float(criteria["abc_b"]) <= 100):
+        errors.append("Os cortes da Curva ABC devem seguir A < B e B ≤ 100%.")
+    for curve in ("A", "C"):
+        if not (
+            float(criteria[f"{curve}_ruptura"]) < float(criteria[f"{curve}_abaixo"])
+            < float(criteria[f"{curve}_ok"])
+        ):
+            errors.append(f"Curva {curve}: os limites devem crescer na ordem Ruptura < Abaixo < OK.")
+    if not (
+        float(criteria["B_ruptura"]) < float(criteria["B_abaixo"])
+        < float(criteria["B_ok"]) < float(criteria["B_alto"])
+    ):
+        errors.append("Curva B: os limites devem crescer na ordem Ruptura < Abaixo < OK < Alto.")
+    return errors
 
 
 def render_analise_linha():
@@ -990,7 +1045,97 @@ def render_analise_linha():
     )
     period_days = 90 if period_label == "90 dias" else long_days
 
-    products, summary = build_line_analysis(base, period_days)
+    if "line_criteria_saved" not in st.session_state:
+        st.session_state["line_criteria_saved"] = DEFAULT_CRITERIA.copy()
+    if "line_criteria_active" not in st.session_state:
+        st.session_state["line_criteria_active"] = st.session_state["line_criteria_saved"].copy()
+
+    widget_defaults = st.session_state["line_criteria_saved"]
+    widget_keys = {
+        "abc_period": "crit_abc_period", "abc_a": "crit_abc_a", "abc_b": "crit_abc_b",
+        "A_ruptura": "crit_A_ruptura", "A_abaixo": "crit_A_abaixo", "A_ok": "crit_A_ok",
+        "B_ruptura": "crit_B_ruptura", "B_abaixo": "crit_B_abaixo", "B_ok": "crit_B_ok", "B_alto": "crit_B_alto",
+        "C_ruptura": "crit_C_ruptura", "C_abaixo": "crit_C_abaixo", "C_ok": "crit_C_ok",
+    }
+    for name, key in widget_keys.items():
+        if key not in st.session_state:
+            st.session_state[key] = widget_defaults[name]
+
+    def collect_criteria_state():
+        return {name: st.session_state[key] for name, key in widget_keys.items()}
+
+    def apply_criteria():
+        st.session_state["line_criteria_active"] = collect_criteria_state()
+
+    def save_criteria():
+        current = collect_criteria_state()
+        st.session_state["line_criteria_active"] = current.copy()
+        st.session_state["line_criteria_saved"] = current.copy()
+
+    def reset_criteria():
+        st.session_state["line_criteria_active"] = DEFAULT_CRITERIA.copy()
+        st.session_state["line_criteria_saved"] = DEFAULT_CRITERIA.copy()
+        for name, key in widget_keys.items():
+            st.session_state[key] = DEFAULT_CRITERIA[name]
+
+    with st.expander("⚙️ Critérios editáveis da análise", expanded=False):
+        st.caption("As alterações só entram no cálculo quando você clicar em **Aplicar critérios**. O período da cobertura/status continua sendo o período principal escolhido acima.")
+
+        st.markdown("#### Curva ABC")
+        abc1, abc2, abc3 = st.columns(3)
+        abc1.selectbox(
+            "Período da Curva ABC",
+            [90, long_days],
+            format_func=lambda x: f"{x} dias",
+            key="crit_abc_period",
+        )
+        abc2.number_input("Curva A até (%)", min_value=1.0, max_value=99.0, step=1.0, key="crit_abc_a")
+        abc3.number_input("Curva B até (%)", min_value=2.0, max_value=100.0, step=1.0, key="crit_abc_b")
+
+        st.markdown("#### Cobertura e status por curva")
+        st.caption("Exemplo: Curva A com cobertura menor que 30 dias = RUPTURA.")
+
+        st.markdown("**Curva A**")
+        a1, a2, a3 = st.columns(3)
+        a1.number_input("RUPTURA: abaixo de (dias)", min_value=0, step=1, key="crit_A_ruptura")
+        a2.number_input("ABAIXO: abaixo de (dias)", min_value=1, step=1, key="crit_A_abaixo")
+        a3.number_input("OK: até (dias)", min_value=1, step=1, key="crit_A_ok")
+        st.caption("Acima do limite de OK = EXCESSO.")
+
+        st.markdown("**Curva B**")
+        b1, b2, b3, b4 = st.columns(4)
+        b1.number_input("RUPTURA < (dias)", min_value=0, step=1, key="crit_B_ruptura")
+        b2.number_input("ABAIXO < (dias)", min_value=1, step=1, key="crit_B_abaixo")
+        b3.number_input("OK até (dias)", min_value=1, step=1, key="crit_B_ok")
+        b4.number_input("ALTO até (dias)", min_value=1, step=1, key="crit_B_alto")
+        st.caption("Acima do limite de ALTO = EXCESSO.")
+
+        st.markdown("**Curva C**")
+        c1, c2, c3 = st.columns(3)
+        c1.number_input("RUPTURA: abaixo de (dias)", min_value=0, step=1, key="crit_C_ruptura")
+        c2.number_input("ABAIXO: abaixo de (dias)", min_value=1, step=1, key="crit_C_abaixo")
+        c3.number_input("OK: até (dias)", min_value=1, step=1, key="crit_C_ok")
+        st.caption("Acima do limite de OK = EXCESSO.")
+
+        bt1, bt2, bt3 = st.columns(3)
+        bt1.button("✅ Aplicar critérios", use_container_width=True, on_click=apply_criteria)
+        bt2.button("💾 Salvar como padrão da sessão", use_container_width=True, on_click=save_criteria)
+        bt3.button("↩️ Restaurar padrão", use_container_width=True, on_click=reset_criteria)
+
+    criteria = st.session_state["line_criteria_active"].copy()
+    errors = _criteria_errors(criteria)
+    if errors:
+        for error in errors:
+            st.error(error)
+        st.stop()
+
+    st.caption(
+        f"**Regra ativa:** Curva ABC em {int(criteria['abc_period'])} dias • "
+        f"A até {criteria['abc_a']:.0f}% • B até {criteria['abc_b']:.0f}% • "
+        f"Cobertura/status calculados sobre {period_days} dias."
+    )
+
+    products, summary = build_line_analysis(base, period_days, criteria)
     revenue_col = "faturamento_90" if period_days == 90 else "faturamento_longo"
 
     total_revenue = float(products["faturamento_periodo"].sum())
@@ -998,7 +1143,7 @@ def render_analise_linha():
     stock_value = float(products["valor_estoque"].sum())
     high_mask = products["status"].isin(["ALTO", "EXCESSO"])
     stopped_mask = products["status"].eq("SEM VENDA - ESTOQUE PARADO")
-    dangerous_mask = products["status"].eq("PERIGOSO")
+    dangerous_mask = products["status"].eq("RUPTURA")
     excess_value = float(products.loc[high_mask, "valor_estoque"].sum())
     stopped_value = float(products.loc[stopped_mask, "valor_estoque"].sum())
     problem_share = (
@@ -1015,7 +1160,7 @@ def render_analise_linha():
     cols[3].markdown(_card_html("Estoque em atenção", f"{problem_share:.1%}", "Alto/Excesso + parado"), unsafe_allow_html=True)
 
     cols2 = st.columns(4)
-    cols2[0].markdown(_card_html("Itens perigosos", integer(dangerous_mask.sum()), "cobertura muito baixa"), unsafe_allow_html=True)
+    cols2[0].markdown(_card_html("Itens em ruptura", integer(dangerous_mask.sum()), "abaixo do limite de ruptura"), unsafe_allow_html=True)
     cols2[1].markdown(_card_html("Itens Alto/Excesso", integer(high_mask.sum()), brl(excess_value)), unsafe_allow_html=True)
     cols2[2].markdown(_card_html("Itens parados", integer(stopped_mask.sum()), brl(stopped_value)), unsafe_allow_html=True)
     cols2[3].markdown(_card_html("Curva A", integer((products['curva_abc'] == 'A').sum()), "itens de maior peso no faturamento"), unsafe_allow_html=True)
@@ -1083,7 +1228,7 @@ def render_analise_linha():
             "Valor Estoque",
             "Valor Alto/Excesso",
             "Valor Parado",
-            "Perigoso",
+            "Ruptura",
             "Abaixo Recomend.",
             "Excesso",
             "Parados",
@@ -1136,13 +1281,13 @@ def render_analise_linha():
     with tab1:
         crit_kind = st.radio(
             "Visualizar",
-            ["Perigoso / Abaixo", "Alto / Excesso", "Estoque parado"],
+            ["Ruptura / Abaixo", "Alto / Excesso", "Estoque parado"],
             horizontal=True,
             key="criticos_v2",
         )
-        if crit_kind == "Perigoso / Abaixo":
+        if crit_kind == "Ruptura / Abaixo":
             filtered = products_filtered[
-                products_filtered["status"].isin(["PERIGOSO", "ABAIXO DO RECOMENDADO"])
+                products_filtered["status"].isin(["RUPTURA", "ABAIXO DO RECOMENDADO"])
             ].copy()
         elif crit_kind == "Alto / Excesso":
             filtered = products_filtered[
@@ -1213,14 +1358,24 @@ def render_analise_linha():
         )
 
     with tab3:
+        st.markdown(f"**Curva ABC:** baseada no faturamento de **{int(criteria['abc_period'])} dias**. A até **{criteria['abc_a']:.0f}%**, B até **{criteria['abc_b']:.0f}%**, C acima disso.")
         st.markdown(
-            "**Curva ABC:** A até 80% do faturamento acumulado; B de 80% a 95%; "
-            "C acima de 95%.\n\n"
-            "**Curva A:** <30 dias Perigoso; 30–<90 Abaixo; 90–180 OK; >180 Excesso.\n\n"
-            "**Curva B:** <30 Perigoso; 30–<90 Abaixo; 90–120 OK; >120–150 Alto; >150 Excesso.\n\n"
-            "**Curva C:** <30 Perigoso; 30–<90 Abaixo; 90–120 OK; >120 Excesso.\n\n"
-            "Produto sem venda e com saldo positivo é classificado como **Estoque parado**."
+            f"**Curva A:** <{criteria['A_ruptura']} dias RUPTURA; "
+            f"{criteria['A_ruptura']}–<{criteria['A_abaixo']} ABAIXO; "
+            f"{criteria['A_abaixo']}–{criteria['A_ok']} OK; >{criteria['A_ok']} EXCESSO."
         )
+        st.markdown(
+            f"**Curva B:** <{criteria['B_ruptura']} dias RUPTURA; "
+            f"{criteria['B_ruptura']}–<{criteria['B_abaixo']} ABAIXO; "
+            f"{criteria['B_abaixo']}–{criteria['B_ok']} OK; "
+            f">{criteria['B_ok']}–{criteria['B_alto']} ALTO; >{criteria['B_alto']} EXCESSO."
+        )
+        st.markdown(
+            f"**Curva C:** <{criteria['C_ruptura']} dias RUPTURA; "
+            f"{criteria['C_ruptura']}–<{criteria['C_abaixo']} ABAIXO; "
+            f"{criteria['C_abaixo']}–{criteria['C_ok']} OK; >{criteria['C_ok']} EXCESSO."
+        )
+        st.caption("Produto sem venda e com saldo positivo é classificado como Estoque parado. Estoque negativo permanece em classificação própria.")
 
     export = formatted_xlsx_bytes(
         summary=summary,
@@ -1229,6 +1384,7 @@ def render_analise_linha():
         period_days=period_days,
         long_days=long_days,
         analysis_name=analysis_name,
+        criteria=criteria,
     )
 
     st.download_button(
