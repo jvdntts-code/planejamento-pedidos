@@ -30,6 +30,41 @@ LIGHT_GRAY = "F2F2F2"
 DARK = "1F1F1F"
 WHITE = "FFFFFF"
 
+LINE_CHART_COLORS = [
+    "#2563EB",  # azul
+    "#0F766E",  # verde petróleo
+    "#7C3AED",  # roxo
+    "#D97706",  # âmbar
+    "#0891B2",  # ciano
+    "#64748B",  # cinza azulado
+    "#DB2777",  # magenta
+    "#65A30D",  # verde oliva
+]
+
+STATUS_COLOR_DOMAIN = [
+    "RUPTURA",
+    "RISCO DE RUPTURA",
+    "OK",
+    "ALTO",
+    "EXCESSO",
+    "SEM VENDA - ESTOQUE PARADO",
+    "SEM VENDA / SEM ESTOQUE",
+    "ESTOQUE NEGATIVO",
+]
+STATUS_COLOR_RANGE = [
+    "#DC2626",
+    "#F97316",
+    "#16A34A",
+    "#EAB308",
+    "#7C3AED",
+    "#64748B",
+    "#94A3B8",
+    "#991B1B",
+]
+
+ABC_COLOR_DOMAIN = ["A", "B", "C"]
+ABC_COLOR_RANGE = ["#16A34A", "#2563EB", "#94A3B8"]
+
 DEFAULT_CRITERIA = {
     "abc_period": 90,
     "abc_a": 80.0,
@@ -390,7 +425,16 @@ def integer(value):
     return f"{int(round(float(value))):,}".replace(",", ".")
 
 
-def _pie_chart(data, category, value, title, value_label="Valor"):
+def _pie_chart(
+    data,
+    category,
+    value,
+    title,
+    description,
+    value_label="Valor",
+    color_domain=None,
+    color_range=None,
+):
     chart_data = data[[category, value]].copy()
     chart_data[value] = pd.to_numeric(chart_data[value], errors="coerce").fillna(0)
     chart_data = chart_data[chart_data[value] > 0].copy()
@@ -403,23 +447,36 @@ def _pie_chart(data, category, value, title, value_label="Valor"):
     chart_data["percentual"] = chart_data[value] / total
     chart_data["participacao"] = (chart_data["percentual"] * 100).round(1)
 
+    color_encoding = {
+        "field": category,
+        "type": "nominal",
+        "legend": {
+            "title": None,
+            "orient": "bottom",
+            "columns": 2,
+            "labelLimit": 260,
+        },
+    }
+    if color_domain and color_range:
+        color_encoding["scale"] = {
+            "domain": color_domain,
+            "range": color_range,
+        }
+
     spec = {
-        "mark": {"type": "arc", "outerRadius": 120},
+        "mark": {
+            "type": "arc",
+            "outerRadius": 118,
+            "stroke": "#111827",
+            "strokeWidth": 1,
+        },
         "encoding": {
             "theta": {
                 "field": value,
                 "type": "quantitative",
                 "stack": True,
             },
-            "color": {
-                "field": category,
-                "type": "nominal",
-                "legend": {
-                    "title": None,
-                    "orient": "bottom",
-                    "columns": 2,
-                },
-            },
+            "color": color_encoding,
             "tooltip": [
                 {"field": category, "type": "nominal", "title": category},
                 {"field": value, "type": "quantitative", "title": value_label, "format": ",.2f"},
@@ -427,13 +484,10 @@ def _pie_chart(data, category, value, title, value_label="Valor"):
             ],
         },
         "view": {"stroke": None},
-        "title": {
-            "text": title,
-            "anchor": "middle",
-            "fontSize": 16,
-        },
     }
 
+    st.markdown(f"**{title}**")
+    st.caption(description)
     st.vega_lite_chart(
         chart_data,
         spec,
@@ -1398,6 +1452,14 @@ def render_analise_linha():
         )
 
     st.markdown("### Gráficos gerenciais")
+    st.caption("Os quatro gráficos abaixo mostram participação, concentração de estoque e situação dos SKUs sob os critérios definidos na lateral.")
+
+    line_domain = summary["linha"].tolist()
+    line_colors = [
+        LINE_CHART_COLORS[i % len(LINE_CHART_COLORS)]
+        for i in range(len(line_domain))
+    ]
+
     g1, g2 = st.columns(2)
 
     revenue_pie = summary[["linha", revenue_col]].copy()
@@ -1407,7 +1469,10 @@ def render_analise_linha():
             "linha",
             revenue_col,
             f"Participação do faturamento por linha — {period_days} dias",
+            "Mostra quanto cada linha representa do faturamento total no período escolhido. Quanto maior a fatia, maior a participação daquela linha nas vendas.",
             "Faturamento",
+            color_domain=line_domain,
+            color_range=line_colors,
         )
 
     stock_pie = summary[["linha", "valor_estoque"]].copy()
@@ -1416,11 +1481,15 @@ def render_analise_linha():
             stock_pie,
             "linha",
             "valor_estoque",
-            "Participação do valor de estoque por linha",
+            "Participação do valor do estoque por linha",
+            "Mostra como o valor total do estoque está distribuído entre as linhas. Ajuda a identificar onde está concentrado o capital em estoque.",
             "Valor do estoque",
+            color_domain=line_domain,
+            color_range=line_colors,
         )
 
     g3, g4 = st.columns(2)
+
     status_pie = (
         products["status"]
         .value_counts()
@@ -1433,7 +1502,10 @@ def render_analise_linha():
             "Status",
             "Itens",
             "Distribuição dos produtos por status",
+            "Mostra quantos SKUs estão em cada situação de cobertura: Ruptura, Risco de Ruptura, OK, Alto, Excesso e situações sem venda.",
             "Itens",
+            color_domain=STATUS_COLOR_DOMAIN,
+            color_range=STATUS_COLOR_RANGE,
         )
 
     abc_pie = (
@@ -1449,7 +1521,10 @@ def render_analise_linha():
             "Curva",
             "Itens",
             "Distribuição Curva ABC",
+            "Mostra a quantidade de SKUs em A, B e C conforme a participação acumulada no faturamento. A reúne os itens de maior relevância financeira.",
             "Itens",
+            color_domain=ABC_COLOR_DOMAIN,
+            color_range=ABC_COLOR_RANGE,
         )
 
     st.markdown("### Ranking gerencial por linha")
