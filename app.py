@@ -281,6 +281,88 @@ def xlsx_bytes(sheets):
     return out.getvalue()
 
 
+def main_import_template_bytes():
+    colunas = [
+        'Codigo', 'Descicao', 'NumFabricante', 'Marca', 'EmbCompra',
+        'Estoque-M20', 'Minimo-M20', 'VendasRoni90-M30'
+    ]
+    for filial in REPORT_BRANCHES:
+        colunas.extend([
+            f'Estoque-{filial}',
+            f'Minimo-{filial}',
+            f'VendasRoni30-{filial}',
+            f'VendasRoni90-{filial}',
+        ])
+
+    modelo = pd.DataFrame(columns=colunas)
+
+    instrucoes = pd.DataFrame([
+        {
+            'Etapa': '1',
+            'Orientacao': 'Use a aba MODELO IMPORTACAO como base e mantenha os nomes dos cabeçalhos.'
+        },
+        {
+            'Etapa': '2',
+            'Orientacao': 'Preencha uma linha por produto, começando na linha 2. Não inclua totais, subtotais ou títulos no meio da tabela.'
+        },
+        {
+            'Etapa': '3',
+            'Orientacao': 'Codigo deve conter o código interno do produto. NumFabricante deve conter a referência do fabricante.'
+        },
+        {
+            'Etapa': '4',
+            'Orientacao': 'EmbCompra deve ser numérica e maior que zero. Estoques, mínimos e vendas devem ser informados como números.'
+        },
+        {
+            'Etapa': '5',
+            'Orientacao': 'Campos numéricos sem informação podem ficar vazios; o NEXO os tratará como zero.'
+        },
+        {
+            'Etapa': '6',
+            'Orientacao': 'As colunas das filiais devem seguir exatamente o padrão Estoque-Mxx, Minimo-Mxx, VendasRoni30-Mxx e VendasRoni90-Mxx.'
+        },
+        {
+            'Etapa': '7',
+            'Orientacao': 'Salve preferencialmente em .xlsx. O NEXO também aceita .xls e .csv.'
+        },
+        {
+            'Etapa': '8',
+            'Orientacao': 'Antes de importar, confira se não houve alteração ou exclusão dos cabeçalhos obrigatórios.'
+        },
+    ])
+
+    dicionario = pd.DataFrame([
+        {'Campo / grupo': 'Codigo', 'O que informar': 'Código interno do produto', 'Obrigatório': 'Sim'},
+        {'Campo / grupo': 'Descicao', 'O que informar': 'Descrição do produto', 'Obrigatório': 'Sim'},
+        {'Campo / grupo': 'NumFabricante', 'O que informar': 'Referência / número do fabricante', 'Obrigatório': 'Sim'},
+        {'Campo / grupo': 'Marca', 'O que informar': 'Marca do produto', 'Obrigatório': 'Sim'},
+        {'Campo / grupo': 'EmbCompra', 'O que informar': 'Quantidade da embalagem de compra', 'Obrigatório': 'Sim'},
+        {'Campo / grupo': 'Estoque-M20', 'O que informar': 'Estoque atual da M20', 'Obrigatório': 'Sim'},
+        {'Campo / grupo': 'Minimo-M20', 'O que informar': 'Estoque mínimo atual da M20', 'Obrigatório': 'Sim'},
+        {'Campo / grupo': 'VendasRoni90-M30', 'O que informar': 'Vendas de 90 dias da M30 usadas pela lógica atual', 'Obrigatório': 'Sim'},
+        {
+            'Campo / grupo': 'Colunas por filial',
+            'O que informar': 'Para cada filial do relatório: Estoque, Mínimo, Vendas 30 dias e Vendas 90 dias',
+            'Obrigatório': 'Sim'
+        },
+    ])
+
+    filiais = pd.DataFrame({
+        'Filiais esperadas no relatório': REPORT_BRANCHES,
+        'Colunas exigidas por filial': [
+            f'Estoque-{f} | Minimo-{f} | VendasRoni30-{f} | VendasRoni90-{f}'
+            for f in REPORT_BRANCHES
+        ],
+    })
+
+    return xlsx_bytes({
+        'MODELO IMPORTACAO': modelo,
+        'INSTRUCOES': instrucoes,
+        'DICIONARIO': dicionario,
+        'FILIAIS': filiais,
+    })
+
+
 def parse_manual(df):
     if df is None or df.empty:
         return pd.DataFrame(columns=['codigo','filial','estoque','minimo','v30','v90'])
@@ -390,9 +472,44 @@ with st.sidebar:
         st.caption('A necessidade de compra de todas as regiões está sendo considerada.')
     st.caption('Importante: essa seleção afeta somente a necessidade de compra das lojas. As regiões continuam integralmente na análise do mínimo da M20 e no cálculo do Lead Time.')
 
-main = st.file_uploader('1) Importe o relatório do sistema', type=['xlsx','xls','csv'], help='Pode ser o mesmo formato usado na aba Importação da planilha.')
+st.markdown("### 1) Importação do relatório")
+
+col_import, col_modelo = st.columns([2.2, 1])
+with col_import:
+    main = st.file_uploader(
+        'Importe o relatório do sistema',
+        type=['xlsx','xls','csv'],
+        help='Use o relatório no formato esperado pelo NEXO. Se tiver dúvida, baixe o modelo ao lado.'
+    )
+
+with col_modelo:
+    st.markdown("**Primeira vez usando?**")
+    st.download_button(
+        '📥 Baixar modelo de importação',
+        data=main_import_template_bytes(),
+        file_name='NEXO_modelo_importacao_planejamento.xlsx',
+        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        use_container_width=True,
+    )
+
+with st.expander('📘 Como preparar o arquivo para importação'):
+    st.markdown(
+        """
+        **Para evitar erros na importação:**
+
+        - use o arquivo modelo disponibilizado acima;
+        - mantenha os nomes dos cabeçalhos;
+        - coloque **um produto por linha**;
+        - informe estoques, mínimos, vendas e embalagem como valores numéricos;
+        - não coloque linhas de totalização no meio dos produtos;
+        - o arquivo modelo possui abas de **Instruções**, **Dicionário** e **Filiais** para orientar o preenchimento.
+
+        O NEXO valida o arquivo antes de iniciar os cálculos e informa quais colunas estão faltando.
+        """
+    )
+
 if not main:
-    st.info('Envie o relatório para começar.')
+    st.info('Envie o relatório para começar. Se for a primeira utilização, baixe o modelo de importação e siga as instruções do arquivo.')
     st.stop()
 
 try:
