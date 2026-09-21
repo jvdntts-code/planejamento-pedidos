@@ -28,9 +28,9 @@
     "due_date": "2026-09-18",
     "priority": "Alta",
     "category": "Compras",
-    "status": "Pendente",
+    "status": "Concluída",
     "created_at": "2026-09-18T18:30:30",
-    "completed_at": ""
+    "completed_at": "2026-09-21T13:47:07"
   },
   {
     "id": "7c654211074245f5a6be725c86e45dbf",
