@@ -261,7 +261,16 @@ def normalize_code(value):
     if pd.isna(value):
         return ''
     text = str(value).strip().upper()
-    text = re.sub(r'\.0
+    text = re.sub(r'\\.0$', '', text)
+    return re.sub(r'[^A-Z0-9]+', '', text)
+
+
+def pend_template(base):
+    return pd.DataFrame({
+        'codigo': base['codigo'],
+        'referencia': base['referencia'],
+        'qtd pendente': 0
+    })
 
 def xlsx_bytes(sheets):
     out = io.BytesIO()
