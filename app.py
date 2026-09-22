@@ -454,34 +454,48 @@ with st.sidebar:
         help='Quando marcado, soma ao pedido a necessidade calculada das filiais consideradas.'
     )
 
-    st.markdown('**Regiões / filiais**')
-    excluir_vca = st.checkbox(
-        'Desconsiderar VCA (M25 a M29)',
-        value=False,
-        help='Retira M25, M26, M27, M28 e M29 somente da necessidade de compra dessas lojas. Elas continuam na análise do mínimo da M20 e no histórico de vendas.'
-    )
-    excluir_ssa = st.checkbox(
-        'Desconsiderar SSA (M14 a M19)',
-        value=False,
-        help='Retira M14, M15, M16, M17, M18 e M19 somente da necessidade de compra dessas lojas. Elas continuam na análise do mínimo da M20 e no histórico de vendas.'
-    )
-
-    st.markdown('**Desconsiderar lojas individualmente**')
-    excluir_filiais_individuais = {}
-    for filial in INDIVIDUAL_EXCLUSION_BRANCHES:
-        excluir_filiais_individuais[filial] = st.checkbox(
-            f'Desconsiderar {filial}',
+    with st.expander('Filiais a desconsiderar', expanded=False):
+        st.markdown('**Regiões**')
+        excluir_vca = st.checkbox(
+            'VCA (M25 a M29)',
             value=False,
-            key=f'excluir_individual_{filial}',
-            help=(
-                f'Retira somente a necessidade de compra direta da {filial}. '
-                'As vendas continuam na análise do mínimo da M20 e no cálculo do Lead Time.'
-            )
+            key='excluir_vca',
+            help='Retira M25, M26, M27, M28 e M29 somente da necessidade de compra dessas lojas. Elas continuam na análise do mínimo da M20 e no histórico de vendas.'
         )
+        excluir_ssa = st.checkbox(
+            'SSA (M14 a M19)',
+            value=False,
+            key='excluir_ssa',
+            help='Retira M14, M15, M16, M17, M18 e M19 somente da necessidade de compra dessas lojas. Elas continuam na análise do mínimo da M20 e no histórico de vendas.'
+        )
+
+        st.markdown('**Lojas individuais**')
+        excluir_filiais_individuais = {}
+        for filial in INDIVIDUAL_EXCLUSION_BRANCHES:
+            excluir_filiais_individuais[filial] = st.checkbox(
+                filial,
+                value=False,
+                key=f'excluir_individual_{filial}',
+                help=(
+                    f'Retira somente a necessidade de compra direta da {filial}. '
+                    'As vendas continuam na análise do mínimo da M20 e no cálculo do Lead Time.'
+                )
+            )
 
     lojas_excluidas_individual = {
         filial for filial, marcada in excluir_filiais_individuais.items() if marcada
     }
+
+    resumo_exclusoes = []
+    if excluir_vca:
+        resumo_exclusoes.append('VCA')
+    if excluir_ssa:
+        resumo_exclusoes.append('SSA')
+    resumo_exclusoes.extend(sorted(lojas_excluidas_individual))
+    if resumo_exclusoes:
+        st.caption('Desconsideradas: ' + ', '.join(resumo_exclusoes))
+    else:
+        st.caption('Nenhuma filial desconsiderada')
 
     leadtime_dias = st.number_input(
         'Lead Time geral (dias)',
