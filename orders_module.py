@@ -232,7 +232,8 @@ def parse_order_pdf(uploaded):
     header["Itens"] = len(items)
     header["Quantidade Total"] = float(items["Qtd Pedida"].sum())
     header["Valor Calculado Itens"] = float(items["Valor Item"].sum())
-    header["Proxima Compra"] = calculate_next_cycle(header["Data Pedido"], 2)
+    header["Proxima Compra"] = None
+    header["Ciclo Meses"] = None
 
     return header, items, not_parsed, text
 
@@ -258,6 +259,7 @@ def export_order_xlsx(header, items):
                 "Código Fornecedor",
                 "Pedido",
                 "Data Pedido",
+                "Ciclo entre compras (meses)",
                 "Próxima Compra",
                 "Valor Pedido",
                 "Quantidade de Itens",
@@ -269,6 +271,7 @@ def export_order_xlsx(header, items):
                 header.get("Fornecedor Codigo", ""),
                 header.get("Pedido", ""),
                 header.get("Data Pedido", ""),
+                header.get("Ciclo Meses", ""),
                 (
                     header.get("Proxima Compra").strftime("%d/%m/%Y")
                     if header.get("Proxima Compra") is not None
@@ -321,6 +324,26 @@ def render_gestao_pedidos():
         "Importe o PDF do Pedido Fornecedor e transforme o documento em acompanhamento de compra."
     )
 
+    with st.sidebar:
+        st.markdown("---")
+        st.markdown("### Gestão de Pedidos")
+        ciclo_meses = st.number_input(
+            "Intervalo entre compras (meses)",
+            min_value=1,
+            max_value=24,
+            value=2,
+            step=1,
+            key="gestao_ciclo_meses",
+            help=(
+                "Define quantos meses após a data do pedido o NEXO deve indicar "
+                "como próxima compra."
+            ),
+        )
+        st.caption(
+            f"Próxima compra será projetada {int(ciclo_meses)} "
+            f"{'mês' if int(ciclo_meses) == 1 else 'meses'} após cada pedido."
+        )
+
     with st.expander("📘 Como funciona", expanded=False):
         st.markdown(
             """
@@ -328,7 +351,7 @@ def render_gestao_pedidos():
             2. O NEXO lê fornecedor, número do pedido, data, valor e itens.
             3. Confira os dados extraídos antes de utilizá-los.
             4. A tabela de itens permite informar **Qtd Recebida** para acompanhar recebimentos parciais.
-            5. Para fornecedores com ciclo bimestral, o NEXO mostra a **próxima compra prevista em 2 meses**.
+            5. O período até a próxima compra é definido no campo **Intervalo entre compras (meses)**, na barra lateral.
 
             Esta primeira versão foi preparada para o layout do Pedido Fornecedor usado como modelo inicial.
             """
@@ -350,6 +373,12 @@ def render_gestao_pedidos():
     except Exception as exc:
         st.error(str(exc))
         return
+
+    header["Ciclo Meses"] = int(ciclo_meses)
+    header["Proxima Compra"] = calculate_next_cycle(
+        header.get("Data Pedido", ""),
+        int(ciclo_meses),
+    )
 
     st.success(
         f"Pedido reconhecido: {header.get('Pedido') or 'sem número'} | "
@@ -374,7 +403,7 @@ def render_gestao_pedidos():
     c5.metric("Data do pedido", header.get("Data Pedido") or "—")
     next_cycle = header.get("Proxima Compra")
     c6.metric(
-        "Próxima compra (2 meses)",
+        f"Próxima compra ({int(ciclo_meses)} {'mês' if int(ciclo_meses) == 1 else 'meses'})",
         next_cycle.strftime("%d/%m/%Y") if next_cycle is not None else "—",
     )
     c7.metric(
