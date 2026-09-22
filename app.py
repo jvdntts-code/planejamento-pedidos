@@ -9,6 +9,7 @@ import streamlit as st
 
 from line_analysis_v2 import render_analise_linha
 from pendencias_module import render_pendencias
+from orders_module import render_gestao_pedidos
 from tasks_module import render_tasks
 
 st.set_page_config(page_title="NEXO | by JVN", page_icon="◆", layout="wide")
@@ -133,10 +134,7 @@ if pagina == "🔎 Pendências":
     st.stop()
 
 if pagina == "🧾 Gestão de Pedidos":
-    render_em_construcao(
-        "🧾 Gestão de Pedidos",
-        "Aqui vamos acompanhar cada pedido, fornecedor, status, previsão, recebimentos e saldo pendente.",
-    )
+    render_gestao_pedidos()
     st.stop()
 
 if pagina == "✅ Minhas Tarefas":
