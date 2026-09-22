@@ -146,12 +146,13 @@ if pagina == "✅ Minhas Tarefas":
 st.title("📦 Planejamento Inteligente de Pedido")
 st.caption("NEXO | Gestão • Planejamento • Inteligência")
 
-REPORT_BRANCHES = ["M1","M6","M11","M12","M13","M21","M22","M23","M25","M26","M27","M28","M29","M35","M39","M40","M31"]
+REPORT_BRANCHES = ["M1","M6","M11","M12","M13","M21","M22","M23","M25","M26","M27","M28","M29","M31","M32","M33","M35","M39","M40","M56","M57"]
 MANUAL_ORDER_BRANCHES = ["M10","M24","M38","M41","M45"]
-ORDER_BRANCHES = ["M1","M6","M10","M11","M12","M13","M21","M22","M23","M24","M25","M26","M27","M28","M29","M35","M38","M39","M40","M41","M45","M31"]
+ORDER_BRANCHES = ["M1","M6","M10","M11","M12","M13","M21","M22","M23","M24","M25","M26","M27","M28","M29","M31","M32","M33","M35","M38","M39","M40","M41","M45","M56","M57"]
 M20_EXTRA_BRANCHES = ["M14","M15","M16","M17","M18","M19"]
 VCA_BRANCHES = ["M25","M26","M27","M28","M29"]
 SSA_BRANCHES = ["M14","M15","M16","M17","M18","M19"]
+INDIVIDUAL_EXCLUSION_BRANCHES = ["M31","M32","M33","M56","M57"]
 PURCHASE_BRANCHES = ORDER_BRANCHES + SSA_BRANCHES
 BRANCH_LABEL = {
     "M1":"M01 EUN", "M6":"M06 BPS", "M10":"M10 (MANUAL)", "M11":"M11", "M12":"M12",
@@ -159,8 +160,9 @@ BRANCH_LABEL = {
     "M17":"M17 (MANUAL)", "M18":"M18 (MANUAL)", "M19":"M19 (MANUAL)",
     "M21":"M21", "M22":"M22", "M23":"M23", "M24":"M24 (MANUAL)",
     "M25":"M25", "M26":"M26", "M27":"M27", "M28":"M28", "M29":"M29", "M35":"M35",
+    "M31":"M31", "M32":"M32", "M33":"M33", "M35":"M35",
     "M38":"M38 (MANUAL)", "M39":"M39", "M40":"M40", "M41":"M41 (MANUAL)",
-    "M45":"M45 (MANUAL)", "M31":"M31"
+    "M45":"M45 (MANUAL)", "M56":"M56", "M57":"M57"
 }
 
 
@@ -464,6 +466,23 @@ with st.sidebar:
         help='Retira M14, M15, M16, M17, M18 e M19 somente da necessidade de compra dessas lojas. Elas continuam na análise do mínimo da M20 e no histórico de vendas.'
     )
 
+    st.markdown('**Desconsiderar lojas individualmente**')
+    excluir_filiais_individuais = {}
+    for filial in INDIVIDUAL_EXCLUSION_BRANCHES:
+        excluir_filiais_individuais[filial] = st.checkbox(
+            f'Desconsiderar {filial}',
+            value=False,
+            key=f'excluir_individual_{filial}',
+            help=(
+                f'Retira somente a necessidade de compra direta da {filial}. '
+                'As vendas continuam na análise do mínimo da M20 e no cálculo do Lead Time.'
+            )
+        )
+
+    lojas_excluidas_individual = {
+        filial for filial, marcada in excluir_filiais_individuais.items() if marcada
+    }
+
     leadtime_dias = st.number_input(
         'Lead Time geral (dias)',
         min_value=0,
@@ -514,6 +533,8 @@ with st.sidebar:
         regioes_excluidas.append('VCA (M25–M29)')
     if excluir_ssa:
         regioes_excluidas.append('SSA (M14–M19)')
+    if lojas_excluidas_individual:
+        regioes_excluidas.extend(sorted(lojas_excluidas_individual))
     if regioes_excluidas:
         st.caption('Sem pedido direto para: ' + ', '.join(regioes_excluidas) + '.')
     else:
@@ -689,7 +710,11 @@ for _, r in base.iterrows():
         status_min = 'CORRIGIR' if minimo < v90 else 'OK'
         buy_calculado = float(qtd_comprar([estoque],[min_valid],[v30])[0])
 
-        filial_excluida = (excluir_vca and b in VCA_BRANCHES) or (excluir_ssa and b in SSA_BRANCHES)
+        filial_excluida = (
+            (excluir_vca and b in VCA_BRANCHES)
+            or (excluir_ssa and b in SSA_BRANCHES)
+            or (b in lojas_excluidas_individual)
+        )
         buy_aplicado = 0.0 if filial_excluida else buy_calculado
 
         necessidade_total += buy_aplicado
@@ -801,6 +826,11 @@ configuracao = pd.DataFrame({
         'Considerar necessidade das filiais',
         'Desconsiderar VCA (M25 a M29)',
         'Desconsiderar SSA (M14 a M19)',
+        'Desconsiderar M31',
+        'Desconsiderar M32',
+        'Desconsiderar M33',
+        'Desconsiderar M56',
+        'Desconsiderar M57',
         'Lead Time geral (dias)',
         'Abater estoque atual da M20',
         'Abater pendência de compra',
@@ -810,6 +840,11 @@ configuracao = pd.DataFrame({
         'Sim' if considerar_necessidade else 'Não',
         'Sim' if excluir_vca else 'Não',
         'Sim' if excluir_ssa else 'Não',
+        'Sim' if 'M31' in lojas_excluidas_individual else 'Não',
+        'Sim' if 'M32' in lojas_excluidas_individual else 'Não',
+        'Sim' if 'M33' in lojas_excluidas_individual else 'Não',
+        'Sim' if 'M56' in lojas_excluidas_individual else 'Não',
+        'Sim' if 'M57' in lojas_excluidas_individual else 'Não',
         leadtime_dias,
         'Sim' if abater_estoque_m20 else 'Não',
         'Sim' if abater_pendencia else 'Não',
