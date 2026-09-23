@@ -1361,25 +1361,48 @@ def render_gestao_pedidos():
 
     st.markdown("### Pedidos anexados")
 
+    upload_flash = st.session_state.pop("gestao_upload_flash", "")
+    if upload_flash:
+        st.success(upload_flash)
+
+    upload_errors = st.session_state.pop("gestao_upload_errors", [])
+    for error in upload_errors:
+        st.error(error)
+
     with st.expander("➕ Anexar pedido(s) em PDF", expanded=not bool(library)):
         st.caption(
             "Você pode selecionar vários PDFs de uma vez. Cada arquivo será transformado em um pedido."
         )
+        upload_version = int(st.session_state.get("gestao_upload_version", 0))
         uploaded_files = st.file_uploader(
             "Selecionar Pedido(s) Fornecedor em PDF",
             type=["pdf"],
             accept_multiple_files=True,
-            key="gestao_pedidos_pdf_multiplos",
+            key=f"gestao_pedidos_pdf_multiplos_{upload_version}",
             help="Use os PDFs originais gerados pelo sistema.",
         )
 
         if uploaded_files:
             added, errors = _add_order_attachments(uploaded_files)
+
             if added:
                 if persistence_ready:
-                    st.success(f"{added} pedido(s) adicionado(s) e salvo(s) permanentemente.")
+                    st.session_state["gestao_upload_flash"] = (
+                        f"{added} pedido(s) adicionado(s) e salvo(s) permanentemente."
+                    )
                 else:
-                    st.success(f"{added} pedido(s) adicionado(s) à sessão.")
+                    st.session_state["gestao_upload_flash"] = (
+                        f"{added} pedido(s) adicionado(s) à sessão."
+                    )
+
+                if errors:
+                    st.session_state["gestao_upload_errors"] = errors
+
+                # Troca a chave do file_uploader para limpar os arquivos
+                # já processados sem afetar os pedidos salvos.
+                st.session_state["gestao_upload_version"] = upload_version + 1
+                st.rerun()
+
             for error in errors:
                 st.error(error)
 
