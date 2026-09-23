@@ -855,12 +855,17 @@ def _format_sheet(
                 cell.alignment = Alignment(horizontal="center")
 
     _auto_width(ws)
-    if table_name:
-        _add_excel_table(ws, header_row, table_name)
 
-    ws.auto_filter.ref = (
-        f"A{header_row}:{get_column_letter(ws.max_column)}{ws.max_row}"
-    )
+    # Mantemos o AutoFiltro normal da planilha, sem criar objetos "Tabela"
+    # (xl/tables/table*.xml). Em algumas versões do Excel, a combinação de
+    # tabelas geradas pelo openpyxl com este layout estilizado fazia o Excel
+    # reparar/remover os Table XMLs ao abrir o arquivo.
+    if ws.max_row > header_row and ws.max_column > 0:
+        ws.auto_filter.ref = (
+            f"A{header_row}:{get_column_letter(ws.max_column)}{ws.max_row}"
+        )
+    else:
+        ws.auto_filter.ref = None
 
 
 def _write_card(ws, col_start, col_end, row_start, title, value, fill_color):
