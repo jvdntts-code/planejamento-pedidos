@@ -1,0 +1,17 @@
+{
+  "A_abaixo": 30,
+  "A_alto": 180,
+  "A_ok": 120,
+  "A_ruptura": 0,
+  "B_abaixo": 50,
+  "B_alto": 150,
+  "B_ok": 90,
+  "B_ruptura": 0,
+  "C_abaixo": 60,
+  "C_alto": 120,
+  "C_ok": 90,
+  "C_ruptura": 0,
+  "abc_a": 80.0,
+  "abc_b": 95.0,
+  "abc_period": 90
+}
