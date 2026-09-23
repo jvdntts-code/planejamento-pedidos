@@ -1884,12 +1884,23 @@ def render_analise_linha():
         abc_rep["% Vendas"] - abc_rep["% Valor Estoque"]
     )
 
-    abc_chart = abc_rep.melt(
-        id_vars=["Curva"],
-        value_vars=["% Vendas", "% Valor Estoque"],
-        var_name="Indicador",
-        value_name="Percentual",
+    abc_chart_vendas = abc_rep[
+        ["Curva", "% Vendas", "faturamento"]
+    ].copy()
+    abc_chart_vendas.columns = ["Curva", "Percentual", "Valor"]
+    abc_chart_vendas["Indicador"] = "Valor vendido"
+
+    abc_chart_estoque = abc_rep[
+        ["Curva", "% Valor Estoque", "valor_estoque"]
+    ].copy()
+    abc_chart_estoque.columns = ["Curva", "Percentual", "Valor"]
+    abc_chart_estoque["Indicador"] = "Valor do estoque"
+
+    abc_chart = pd.concat(
+        [abc_chart_vendas, abc_chart_estoque],
+        ignore_index=True,
     )
+    abc_chart["Valor em R$"] = abc_chart["Valor"].apply(brl)
     abc_compare_spec = {
         "mark": {
             "type": "bar",
@@ -1926,6 +1937,11 @@ def render_analise_linha():
                     "title": "Participação (%)",
                     "format": ".1f",
                 },
+                {
+                    "field": "Valor em R$",
+                    "type": "nominal",
+                    "title": "Valor (R$)",
+                },
             ],
         },
         "view": {"stroke": None},
@@ -1949,7 +1965,10 @@ def render_analise_linha():
 
     with main2:
         st.markdown("**Curva ABC — vendas x estoque**")
-        st.caption("Compara participação nas vendas com participação no valor do estoque.")
+        st.caption(
+            "Compara participação nas vendas com participação no valor do estoque. "
+            "Passe o mouse nas barras para ver também o valor em R$."
+        )
         st.vega_lite_chart(
             abc_chart,
             abc_compare_spec,
