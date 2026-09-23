@@ -1091,6 +1091,154 @@ def _excel_abc_compare_image(products, period_days):
     buffer.seek(0)
     return buffer
 
+
+def _executive_panel_tables(products, period_days):
+    status_order = [
+        "RUPTURA",
+        "RISCO DE RUPTURA",
+        "OK",
+        "ALTO",
+        "EXCESSO",
+        "SEM VENDA - ESTOQUE PARADO",
+        "SEM VENDA / SEM ESTOQUE",
+        "ESTOQUE NEGATIVO",
+    ]
+
+    total_items = len(products)
+    total_stock_value = float(products["valor_estoque"].sum())
+
+    status_summary = (
+        products.groupby("status", dropna=False)
+        .agg(
+            Itens=("codigo", "count"),
+            Estoque=("estoque", "sum"),
+            Faturamento=("faturamento_periodo", "sum"),
+            Valor_Estoque=("valor_estoque", "sum"),
+        )
+        .reindex(status_order, fill_value=0)
+        .reset_index()
+        .rename(
+            columns={
+                "status": "Status de Cobertura",
+                "Estoque": "Estoque (unid.)",
+                "Faturamento": f"Faturamento {period_days} dias",
+                "Valor_Estoque": "Valor Estoque",
+            }
+        )
+    )
+    status_summary["% dos Itens"] = np.where(
+        total_items != 0,
+        status_summary["Itens"] / total_items * 100,
+        0,
+    )
+    status_summary = status_summary[
+        [
+            "Status de Cobertura",
+            "Itens",
+            "Estoque (unid.)",
+            f"Faturamento {period_days} dias",
+            "% dos Itens",
+            "Valor Estoque",
+        ]
+    ]
+
+    abc_summary = (
+        products.groupby("curva_abc", dropna=False)
+        .agg(
+            Itens=("codigo", "count"),
+            Faturamento=("faturamento_periodo", "sum"),
+            Estoque=("estoque", "sum"),
+            Valor_Estoque=("valor_estoque", "sum"),
+        )
+        .reindex(["A", "B", "C"], fill_value=0)
+        .reset_index()
+        .rename(
+            columns={
+                "curva_abc": "Curva ABC",
+                "Faturamento": f"Faturamento {period_days} dias",
+                "Estoque": "Estoque (unid.)",
+                "Valor_Estoque": "Valor Estoque",
+            }
+        )
+    )
+
+    total_revenue = float(abc_summary[f"Faturamento {period_days} dias"].sum())
+    abc_summary["% Faturamento"] = np.where(
+        total_revenue != 0,
+        abc_summary[f"Faturamento {period_days} dias"] / total_revenue * 100,
+        0,
+    )
+    abc_summary["Faturamento / Estoque %"] = np.where(
+        abc_summary["Valor Estoque"] != 0,
+        abc_summary[f"Faturamento {period_days} dias"]
+        / abc_summary["Valor Estoque"]
+        * 100,
+        0,
+    )
+    abc_summary["Faturamento / Estoque total"] = np.where(
+        total_stock_value != 0,
+        abc_summary[f"Faturamento {period_days} dias"] / total_stock_value * 100,
+        0,
+    )
+    abc_summary = abc_summary[
+        [
+            "Curva ABC",
+            "Itens",
+            f"Faturamento {period_days} dias",
+            "% Faturamento",
+            "Estoque (unid.)",
+            "Valor Estoque",
+            "Faturamento / Estoque %",
+            "Faturamento / Estoque total",
+        ]
+    ]
+
+    priority_specs = [
+        (
+            "Ruptura",
+            products["status"].eq("RUPTURA"),
+            "Priorizar reposição e revisar mínimos",
+        ),
+        (
+            "Risco de ruptura",
+            products["status"].eq("RISCO DE RUPTURA"),
+            "Planejar reposição antes de entrar em ruptura",
+        ),
+        (
+            "Estoque alto ou excessivo",
+            products["status"].isin(["ALTO", "EXCESSO"]),
+            "Reduzir compras e acelerar escoamento",
+        ),
+        (
+            "Estoque parado sem venda",
+            products["status"].eq("SEM VENDA - ESTOQUE PARADO"),
+            "Bloquear reposição e avaliar saída do estoque",
+        ),
+        (
+            "Saldo de estoque negativo",
+            products["status"].eq("ESTOQUE NEGATIVO"),
+            "Corrigir divergências de saldo no sistema",
+        ),
+    ]
+
+    priority_rows = []
+    for label, mask, action in priority_specs:
+        subset = products.loc[mask]
+        qty = int(len(subset))
+        priority_rows.append(
+            {
+                "Prioridade Gerencial": label,
+                "Quantidade": qty,
+                "% dos Itens": (qty / total_items * 100) if total_items else 0,
+                "Estoque (unid.)": float(subset["estoque"].sum()),
+                "Ação Gerencial": action,
+                "Valor Estoque": float(subset["valor_estoque"].sum()),
+            }
+        )
+
+    priorities = pd.DataFrame(priority_rows)
+    return status_summary, abc_summary, priorities
+
 def formatted_xlsx_bytes(
     summary,
     products,
@@ -1183,60 +1331,160 @@ def formatted_xlsx_bytes(
         ws["A3"].font = Font(color=NAVY, bold=True, size=11)
         ws["A3"].alignment = Alignment(horizontal="center")
 
-        _write_card(ws, 1, 3, 5, "SKUs analisados", len(products), LIGHT_BLUE)
-        _write_card(ws, 4, 6, 5, f"Faturamento {period_days}d", total_revenue, LIGHT_GREEN)
-        ws["D6"].number_format = 'R$ #,##0.00'
-        _write_card(ws, 7, 9, 5, "Valor do estoque", stock_value, LIGHT_YELLOW)
-        ws["G6"].number_format = 'R$ #,##0.00'
-        _write_card(ws, 10, 12, 5, "% estoque em atenção", problem_share, "F4CCCC")
-        ws["J6"].number_format = '0.0%'
-
-        ws.merge_cells("A9:L9")
-        ws["A9"] = "LEITURA RÁPIDA"
-        ws["A9"].fill = PatternFill("solid", fgColor=NAVY)
-        ws["A9"].font = Font(color=WHITE, bold=True, size=12)
-        ws["A9"].alignment = Alignment(horizontal="left")
-
-        quick_lines = []
-        if best_sales is not None:
-            share = float(best_sales[revenue_col]) / total_revenue if total_revenue else 0
-            quick_lines.append(
-                f"• Maior faturamento: {best_sales['linha']} — {share:.1%} do total."
-            )
-        quick_lines.append(
-            f"• Estoque em Alto/Excesso + Parados: {problem_share:.1%} do valor total."
+        status_panel, abc_panel, priorities_panel = _executive_panel_tables(
+            products,
+            period_days,
         )
 
-        for offset, line in enumerate(quick_lines, start=10):
-            ws.merge_cells(start_row=offset, start_column=1, end_row=offset, end_column=12)
-            ws.cell(offset, 1).value = line
-            ws.cell(offset, 1).alignment = Alignment(wrap_text=True)
-            ws.cell(offset, 1).font = Font(size=10)
+        for col in range(1, 16):
+            ws.column_dimensions[get_column_letter(col)].width = 14
 
-        # Dois gráficos principais para leitura rápida.
-        line_labels = summary["linha"].tolist()
-        line_colors = [
-            LINE_CHART_COLORS[i % len(LINE_CHART_COLORS)]
-            for i in range(len(line_labels))
+        # KPIs principais, no estilo de painel executivo compacto.
+        kpi_headers = [
+            "Total de Itens",
+            "Curva A",
+            "Curva B",
+            "Curva C",
+            f"Faturamento {period_days} dias",
+            "Estoque (unidades)",
+            "Estoque a Preço de Venda",
+        ]
+        curve_counts = products["curva_abc"].value_counts()
+        kpi_values = [
+            len(products),
+            int(curve_counts.get("A", 0)),
+            int(curve_counts.get("B", 0)),
+            int(curve_counts.get("C", 0)),
+            total_revenue,
+            total_stock,
+            stock_value,
+        ]
+        kpi_ranges = [
+            (1, 2),
+            (3, 4),
+            (5, 6),
+            (7, 8),
+            (9, 10),
+            (11, 12),
+            (13, 15),
         ]
 
-        chart_buffers = [
-            _excel_pie_image(
-                line_labels,
-                summary[revenue_col].tolist(),
-                f"Participação do faturamento por linha — {period_days} dias",
-                "Mostra onde o faturamento está concentrado.",
-                line_colors,
-            ),
-            _excel_abc_compare_image(products, period_days),
-        ]
+        for (start_col, end_col), header, value in zip(
+            kpi_ranges,
+            kpi_headers,
+            kpi_values,
+        ):
+            ws.merge_cells(
+                start_row=5,
+                start_column=start_col,
+                end_row=5,
+                end_column=end_col,
+            )
+            ws.merge_cells(
+                start_row=6,
+                start_column=start_col,
+                end_row=6,
+                end_column=end_col,
+            )
+            h = ws.cell(5, start_col)
+            v = ws.cell(6, start_col)
+            h.value = header
+            v.value = value
+            h.fill = PatternFill("solid", fgColor=LIGHT_BLUE)
+            h.font = Font(color=NAVY, bold=True, size=10)
+            h.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            v.font = Font(color=DARK, bold=True, size=15)
+            v.alignment = Alignment(horizontal="center", vertical="center")
 
-        chart_positions = ["A13", "G13"]
-        for buffer, position in zip(chart_buffers, chart_positions):
-            image = XLImage(buffer)
-            image.width = 620
-            image.height = 385
-            ws.add_image(image, position)
+        ws["I6"].number_format = 'R$ #,##0.00'
+        ws["K6"].number_format = '#,##0.00'
+        ws["M6"].number_format = 'R$ #,##0.00'
+
+        # Títulos das duas tabelas centrais.
+        ws.merge_cells("A9:F9")
+        ws["A9"] = "STATUS DE COBERTURA"
+        ws["A9"].fill = PatternFill("solid", fgColor=NAVY)
+        ws["A9"].font = Font(color=WHITE, bold=True)
+
+        ws.merge_cells("H9:O9")
+        ws["H9"] = "CURVA ABC"
+        ws["H9"].fill = PatternFill("solid", fgColor=NAVY)
+        ws["H9"].font = Font(color=WHITE, bold=True)
+
+        status_panel.to_excel(
+            writer,
+            sheet_name="DASHBOARD",
+            index=False,
+            startrow=9,
+            startcol=0,
+        )
+        abc_panel.to_excel(
+            writer,
+            sheet_name="DASHBOARD",
+            index=False,
+            startrow=9,
+            startcol=7,
+        )
+
+        _style_header(ws, 10)
+
+        # Reaplica cabeçalho só para a tabela ABC, pois está no mesmo row.
+        for col in range(8, 16):
+            cell = ws.cell(10, col)
+            if cell.value is not None:
+                cell.fill = PatternFill("solid", fgColor=NAVY)
+                cell.font = Font(color=WHITE, bold=True)
+                cell.alignment = Alignment(
+                    horizontal="center",
+                    vertical="center",
+                    wrap_text=True,
+                )
+
+        status_start = 11
+        status_end = status_start + len(status_panel) - 1
+        abc_start = 11
+        abc_end = abc_start + len(abc_panel) - 1
+
+        for row in range(status_start, status_end + 1):
+            ws.cell(row, 4).number_format = 'R$ #,##0.00'
+            ws.cell(row, 5).number_format = '0.0%'
+            ws.cell(row, 6).number_format = 'R$ #,##0.00'
+
+        for row in range(abc_start, abc_end + 1):
+            ws.cell(row, 10).number_format = 'R$ #,##0.00'
+            ws.cell(row, 11).number_format = '0.0%'
+            ws.cell(row, 13).number_format = 'R$ #,##0.00'
+            ws.cell(row, 14).number_format = '0.0%'
+            ws.cell(row, 15).number_format = '0.0%'
+
+        priority_title_row = max(status_end, abc_end) + 3
+        ws.merge_cells(
+            start_row=priority_title_row,
+            start_column=1,
+            end_row=priority_title_row,
+            end_column=15,
+        )
+        ws.cell(priority_title_row, 1).value = "PRIORIDADES GERENCIAIS"
+        ws.cell(priority_title_row, 1).fill = PatternFill("solid", fgColor=NAVY)
+        ws.cell(priority_title_row, 1).font = Font(color=WHITE, bold=True)
+
+        priorities_panel.to_excel(
+            writer,
+            sheet_name="DASHBOARD",
+            index=False,
+            startrow=priority_title_row,
+            startcol=0,
+        )
+        priority_header_row = priority_title_row + 1
+        _style_header(ws, priority_header_row)
+
+        priority_data_start = priority_header_row + 1
+        priority_data_end = priority_data_start + len(priorities_panel) - 1
+        for row in range(priority_data_start, priority_data_end + 1):
+            ws.cell(row, 3).number_format = '0.0%'
+            ws.cell(row, 6).number_format = 'R$ #,##0.00'
+
+        ws.freeze_panes = "A10"
 
         # Demais abas.
         for sheet_name in ("RESUMO LINHAS", "PRODUTOS", "ALTO EXCESSO", "ESTOQUE PARADO"):
@@ -1817,248 +2065,193 @@ def render_analise_linha():
         else 0
     )
 
-    st.markdown("### Visão executiva")
-    cols = st.columns(4)
-    cols[0].markdown(
-        _card_html("SKUs analisados", integer(len(products)), f"{products['linha'].nunique()} linhas"),
-        unsafe_allow_html=True,
-    )
-    cols[1].markdown(
-        _card_html(f"Faturamento {period_days}d", brl(total_revenue), "período analisado"),
-        unsafe_allow_html=True,
-    )
-    cols[2].markdown(
-        _card_html("Valor do estoque", brl(stock_value), f"{integer(total_stock)} unidades"),
-        unsafe_allow_html=True,
-    )
-    cols[3].markdown(
-        _card_html("Estoque em atenção", f"{problem_share:.1%}", "Alto/Excesso + parado"),
-        unsafe_allow_html=True,
+    status_panel, abc_panel, priorities_panel = _executive_panel_tables(
+        products,
+        period_days,
     )
 
-    with st.expander("Ver outros indicadores", expanded=False):
-        extras = st.columns(4)
-        extras[0].metric("Itens em ruptura", int(dangerous_mask.sum()))
-        extras[1].metric("Itens Alto/Excesso", int(high_mask.sum()))
-        extras[2].metric("Itens parados", int(stopped_mask.sum()))
-        extras[3].metric("Curva A", int((products["curva_abc"] == "A").sum()))
+    st.markdown("### Painel gerencial")
 
-    if not summary.empty:
-        best_sales = summary.loc[summary[revenue_col].idxmax()]
-        share = float(best_sales[revenue_col]) / total_revenue if total_revenue else 0
-        st.info(
-            f"**{best_sales['linha']}** lidera o faturamento com **{share:.1%}** do total. "
-            f"Estoque em Alto/Excesso + Parados representa **{problem_share:.1%}** do valor do estoque."
+    curve_counts = products["curva_abc"].value_counts()
+    top1, top2, top3, top4 = st.columns(4)
+    top1.metric("Total de Itens", integer(len(products)))
+    top2.metric("Curva A", integer(curve_counts.get("A", 0)))
+    top3.metric("Curva B", integer(curve_counts.get("B", 0)))
+    top4.metric("Curva C", integer(curve_counts.get("C", 0)))
+
+    fin1, fin2, fin3 = st.columns(3)
+    fin1.metric(f"Faturamento {period_days} dias", brl(total_revenue))
+    fin2.metric("Estoque (unidades)", integer(total_stock))
+    fin3.metric("Estoque a Preço de Venda", brl(stock_value))
+
+    left_panel, right_panel = st.columns([1, 1.25])
+
+    with left_panel:
+        st.markdown("#### Status de Cobertura")
+        st.dataframe(
+            status_panel,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                f"Faturamento {period_days} dias": st.column_config.NumberColumn(
+                    format="R$ %.2f"
+                ),
+                "% dos Itens": st.column_config.NumberColumn(format="%.1f%%"),
+                "Valor Estoque": st.column_config.NumberColumn(format="R$ %.2f"),
+            },
         )
 
-    line_domain = summary["linha"].tolist()
-    line_colors = [
-        LINE_CHART_COLORS[i % len(LINE_CHART_COLORS)]
-        for i in range(len(line_domain))
-    ]
-
-    abc_rep = (
-        products.groupby("curva_abc", dropna=False)
-        .agg(
-            faturamento=("faturamento_periodo", "sum"),
-            valor_estoque=("valor_estoque", "sum"),
+    with right_panel:
+        st.markdown("#### Curva ABC")
+        st.dataframe(
+            abc_panel,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                f"Faturamento {period_days} dias": st.column_config.NumberColumn(
+                    format="R$ %.2f"
+                ),
+                "% Faturamento": st.column_config.NumberColumn(format="%.1f%%"),
+                "Valor Estoque": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Faturamento / Estoque %": st.column_config.NumberColumn(
+                    format="%.1f%%"
+                ),
+                "Faturamento / Estoque total": st.column_config.NumberColumn(
+                    format="%.1f%%"
+                ),
+            },
         )
-        .reindex(["A", "B", "C"], fill_value=0)
-        .reset_index()
-        .rename(columns={"curva_abc": "Curva"})
-    )
 
-    total_abc_faturamento = float(abc_rep["faturamento"].sum())
-    total_abc_estoque = float(abc_rep["valor_estoque"].sum())
-    abc_rep["% Vendas"] = np.where(
-        total_abc_faturamento != 0,
-        abc_rep["faturamento"] / total_abc_faturamento * 100,
-        0,
-    )
-    abc_rep["% Valor Estoque"] = np.where(
-        total_abc_estoque != 0,
-        abc_rep["valor_estoque"] / total_abc_estoque * 100,
-        0,
-    )
-    abc_rep["Diferença (p.p.)"] = (
-        abc_rep["% Vendas"] - abc_rep["% Valor Estoque"]
-    )
-
-    abc_chart_vendas = abc_rep[
-        ["Curva", "% Vendas", "faturamento"]
-    ].copy()
-    abc_chart_vendas.columns = ["Curva", "Percentual", "Valor"]
-    abc_chart_vendas["Indicador"] = "Valor vendido"
-
-    abc_chart_estoque = abc_rep[
-        ["Curva", "% Valor Estoque", "valor_estoque"]
-    ].copy()
-    abc_chart_estoque.columns = ["Curva", "Percentual", "Valor"]
-    abc_chart_estoque["Indicador"] = "Valor do estoque"
-
-    abc_chart = pd.concat(
-        [abc_chart_vendas, abc_chart_estoque],
-        ignore_index=True,
-    )
-    abc_chart["Valor em R$"] = abc_chart["Valor"].apply(brl)
-    abc_compare_spec = {
-        "mark": {
-            "type": "bar",
-            "cornerRadiusTopLeft": 3,
-            "cornerRadiusTopRight": 3,
+    st.markdown("#### Prioridades Gerenciais")
+    st.dataframe(
+        priorities_panel,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "% dos Itens": st.column_config.NumberColumn(format="%.1f%%"),
+            "Valor Estoque": st.column_config.NumberColumn(format="R$ %.2f"),
         },
-        "encoding": {
-            "x": {
-                "field": "Curva",
-                "type": "nominal",
-                "sort": ["A", "B", "C"],
-                "title": "Curva ABC",
-                "axis": {"labelAngle": 0},
+    )
+
+    with st.expander("Ver gráficos", expanded=False):
+        line_domain = summary["linha"].tolist()
+        line_colors = [
+            LINE_CHART_COLORS[i % len(LINE_CHART_COLORS)]
+            for i in range(len(line_domain))
+        ]
+
+        abc_rep = (
+            products.groupby("curva_abc", dropna=False)
+            .agg(
+                faturamento=("faturamento_periodo", "sum"),
+                valor_estoque=("valor_estoque", "sum"),
+            )
+            .reindex(["A", "B", "C"], fill_value=0)
+            .reset_index()
+            .rename(columns={"curva_abc": "Curva"})
+        )
+
+        total_abc_faturamento = float(abc_rep["faturamento"].sum())
+        total_abc_estoque = float(abc_rep["valor_estoque"].sum())
+        abc_rep["% Vendas"] = np.where(
+            total_abc_faturamento != 0,
+            abc_rep["faturamento"] / total_abc_faturamento * 100,
+            0,
+        )
+        abc_rep["% Valor Estoque"] = np.where(
+            total_abc_estoque != 0,
+            abc_rep["valor_estoque"] / total_abc_estoque * 100,
+            0,
+        )
+
+        abc_chart_vendas = abc_rep[
+            ["Curva", "% Vendas", "faturamento"]
+        ].copy()
+        abc_chart_vendas.columns = ["Curva", "Percentual", "Valor"]
+        abc_chart_vendas["Indicador"] = "Valor vendido"
+
+        abc_chart_estoque = abc_rep[
+            ["Curva", "% Valor Estoque", "valor_estoque"]
+        ].copy()
+        abc_chart_estoque.columns = ["Curva", "Percentual", "Valor"]
+        abc_chart_estoque["Indicador"] = "Valor do estoque"
+
+        abc_chart = pd.concat(
+            [abc_chart_vendas, abc_chart_estoque],
+            ignore_index=True,
+        )
+        abc_chart["Valor em R$"] = abc_chart["Valor"].apply(brl)
+
+        abc_compare_spec = {
+            "mark": {
+                "type": "bar",
+                "cornerRadiusTopLeft": 3,
+                "cornerRadiusTopRight": 3,
             },
-            "xOffset": {"field": "Indicador"},
-            "y": {
-                "field": "Percentual",
-                "type": "quantitative",
-                "title": "Participação (%)",
-                "scale": {"domain": [0, 100]},
-            },
-            "color": {
-                "field": "Indicador",
-                "type": "nominal",
-                "title": None,
-                "legend": {"orient": "bottom"},
-            },
-            "tooltip": [
-                {"field": "Curva", "type": "nominal", "title": "Curva"},
-                {"field": "Indicador", "type": "nominal", "title": "Indicador"},
-                {
+            "encoding": {
+                "x": {
+                    "field": "Curva",
+                    "type": "nominal",
+                    "sort": ["A", "B", "C"],
+                    "title": "Curva ABC",
+                    "axis": {"labelAngle": 0},
+                },
+                "xOffset": {"field": "Indicador"},
+                "y": {
                     "field": "Percentual",
                     "type": "quantitative",
                     "title": "Participação (%)",
-                    "format": ".1f",
+                    "scale": {"domain": [0, 100]},
                 },
-                {
-                    "field": "Valor em R$",
+                "color": {
+                    "field": "Indicador",
                     "type": "nominal",
-                    "title": "Valor (R$)",
+                    "title": None,
+                    "legend": {"orient": "bottom"},
                 },
-            ],
-        },
-        "view": {"stroke": None},
-    }
+                "tooltip": [
+                    {"field": "Curva", "type": "nominal", "title": "Curva"},
+                    {"field": "Indicador", "type": "nominal", "title": "Indicador"},
+                    {
+                        "field": "Percentual",
+                        "type": "quantitative",
+                        "title": "Participação (%)",
+                        "format": ".1f",
+                    },
+                    {
+                        "field": "Valor em R$",
+                        "type": "nominal",
+                        "title": "Valor (R$)",
+                    },
+                ],
+            },
+            "view": {"stroke": None},
+        }
 
-    st.markdown("### Leitura principal")
-    main1, main2 = st.columns(2)
-
-    with main1:
-        revenue_pie = summary[["linha", revenue_col]].copy()
-        _pie_chart(
-            revenue_pie,
-            "linha",
-            revenue_col,
-            f"Faturamento por linha — {period_days} dias",
-            "Onde as vendas estão concentradas.",
-            "Faturamento",
-            color_domain=line_domain,
-            color_range=line_colors,
-        )
-
-    with main2:
-        st.markdown("**Curva ABC — vendas x estoque**")
-        st.caption(
-            "Compara participação nas vendas com participação no valor do estoque. "
-            "Passe o mouse nas barras para ver também o valor em R$."
-        )
-        st.vega_lite_chart(
-            abc_chart,
-            abc_compare_spec,
-            use_container_width=True,
-        )
-
-    with st.expander("Ver análises complementares", expanded=False):
-        comp1, comp2, comp3 = st.columns(3)
-
-        stock_pie = summary[["linha", "valor_estoque"]].copy()
-        with comp1:
+        graph1, graph2 = st.columns(2)
+        with graph1:
+            revenue_pie = summary[["linha", revenue_col]].copy()
             _pie_chart(
-                stock_pie,
+                revenue_pie,
                 "linha",
-                "valor_estoque",
-                "Valor do estoque por linha",
-                "Onde o capital em estoque está concentrado.",
-                "Valor do estoque",
+                revenue_col,
+                f"Faturamento por linha — {period_days} dias",
+                "Onde as vendas estão concentradas.",
+                "Faturamento",
                 color_domain=line_domain,
                 color_range=line_colors,
             )
 
-        status_pie = (
-            products["status"]
-            .value_counts()
-            .rename_axis("Status")
-            .reset_index(name="Itens")
-        )
-        with comp2:
-            _pie_chart(
-                status_pie,
-                "Status",
-                "Itens",
-                "Produtos por status",
-                "Quantidade de SKUs por situação de cobertura.",
-                "Itens",
-                color_domain=STATUS_COLOR_DOMAIN,
-                color_range=STATUS_COLOR_RANGE,
+        with graph2:
+            st.markdown("**Curva ABC — vendas x estoque**")
+            st.caption(
+                "Passe o mouse nas barras para ver participação e valor em R$."
             )
-
-        abc_pie = (
-            products["curva_abc"]
-            .value_counts()
-            .reindex(["A", "B", "C"], fill_value=0)
-            .rename_axis("Curva")
-            .reset_index(name="Itens")
-        )
-        with comp3:
-            _pie_chart(
-                abc_pie,
-                "Curva",
-                "Itens",
-                "SKUs por Curva ABC",
-                "Quantidade de produtos classificados em A, B e C.",
-                "Itens",
-                color_domain=ABC_COLOR_DOMAIN,
-                color_range=ABC_COLOR_RANGE,
+            st.vega_lite_chart(
+                abc_chart,
+                abc_compare_spec,
+                use_container_width=True,
             )
-
-    with st.expander("Ver números da Curva ABC", expanded=False):
-        abc_rep_view = abc_rep[
-            [
-                "Curva",
-                "% Vendas",
-                "% Valor Estoque",
-                "Diferença (p.p.)",
-                "faturamento",
-                "valor_estoque",
-            ]
-        ].copy()
-        abc_rep_view.columns = [
-            "Curva",
-            "% Vendas",
-            "% Valor Estoque",
-            "Diferença (p.p.)",
-            "Faturamento",
-            "Valor Estoque",
-        ]
-        st.dataframe(
-            abc_rep_view,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "% Vendas": st.column_config.NumberColumn(format="%.1f%%"),
-                "% Valor Estoque": st.column_config.NumberColumn(format="%.1f%%"),
-                "Diferença (p.p.)": st.column_config.NumberColumn(format="%+.1f"),
-                "Faturamento": st.column_config.NumberColumn(format="R$ %.2f"),
-                "Valor Estoque": st.column_config.NumberColumn(format="R$ %.2f"),
-            },
-        )
 
     with st.expander("Ver ranking gerencial por linha", expanded=False):
         manager = _friendly_summary(summary, long_days)[
@@ -2075,14 +2268,15 @@ def render_analise_linha():
                 "Parados",
             ]
         ].copy()
-
         st.dataframe(
             manager,
             use_container_width=True,
             hide_index=True,
             column_config={
                 "Faturamento 90d": st.column_config.NumberColumn(format="R$ %.2f"),
-                f"Faturamento {long_days}d": st.column_config.NumberColumn(format="R$ %.2f"),
+                f"Faturamento {long_days}d": st.column_config.NumberColumn(
+                    format="R$ %.2f"
+                ),
                 "Valor Estoque": st.column_config.NumberColumn(format="R$ %.2f"),
                 "Valor Alto/Excesso": st.column_config.NumberColumn(format="R$ %.2f"),
                 "Valor Parado": st.column_config.NumberColumn(format="R$ %.2f"),
