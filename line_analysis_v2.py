@@ -999,6 +999,98 @@ def _excel_pie_image(
     return buffer
 
 
+
+def _excel_abc_compare_image(products, period_days):
+    abc = (
+        products.groupby("curva_abc", dropna=False)
+        .agg(
+            faturamento=("faturamento_periodo", "sum"),
+            valor_estoque=("valor_estoque", "sum"),
+        )
+        .reindex(["A", "B", "C"], fill_value=0)
+    )
+
+    sales_total = float(abc["faturamento"].sum())
+    stock_total = float(abc["valor_estoque"].sum())
+    sales_pct = (
+        abc["faturamento"] / sales_total * 100
+        if sales_total
+        else abc["faturamento"] * 0
+    )
+    stock_pct = (
+        abc["valor_estoque"] / stock_total * 100
+        if stock_total
+        else abc["valor_estoque"] * 0
+    )
+
+    labels = ["A", "B", "C"]
+    x = np.arange(len(labels))
+    width = 0.34
+
+    fig, ax = plt.subplots(figsize=(7.2, 4.7), dpi=150)
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("white")
+
+    bars_sales = ax.bar(x - width / 2, sales_pct.values, width, label="% Vendas")
+    bars_stock = ax.bar(x + width / 2, stock_pct.values, width, label="% Valor Estoque")
+
+    ax.set_ylim(0, 100)
+    ax.set_xticks(x, labels)
+    ax.set_ylabel("Participação (%)")
+    ax.grid(axis="y", alpha=0.18)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    for bars in (bars_sales, bars_stock):
+        for bar in bars:
+            height = float(bar.get_height())
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                height + 1.2,
+                f"{height:.1f}%",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+                fontweight="bold",
+            )
+
+    ax.legend(
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.18),
+        ncol=2,
+        frameon=False,
+        fontsize=8,
+    )
+
+    fig.suptitle(
+        "Curva ABC — vendas x valor do estoque",
+        fontsize=13,
+        fontweight="bold",
+        color="#17365D",
+        y=0.98,
+    )
+    fig.text(
+        0.5,
+        0.91,
+        f"Participação por curva no período de {period_days} dias.",
+        ha="center",
+        va="top",
+        fontsize=8.2,
+        color="#475569",
+    )
+    fig.subplots_adjust(top=0.80, bottom=0.24, left=0.10, right=0.96)
+
+    buffer = io.BytesIO()
+    fig.savefig(
+        buffer,
+        format="png",
+        bbox_inches="tight",
+        facecolor="white",
+    )
+    plt.close(fig)
+    buffer.seek(0)
+    return buffer
+
 def formatted_xlsx_bytes(
     summary,
     products,
@@ -1096,133 +1188,55 @@ def formatted_xlsx_bytes(
         ws["D6"].number_format = 'R$ #,##0.00'
         _write_card(ws, 7, 9, 5, "Valor do estoque", stock_value, LIGHT_YELLOW)
         ws["G6"].number_format = 'R$ #,##0.00'
-        _write_card(ws, 10, 12, 5, "Estoque total (un.)", total_stock, "EDEDED")
+        _write_card(ws, 10, 12, 5, "% estoque em atenção", problem_share, "F4CCCC")
+        ws["J6"].number_format = '0.0%'
 
-        _write_card(ws, 1, 3, 9, "Itens Alto / Excesso", int(high_mask.sum()), LIGHT_ORANGE)
-        _write_card(ws, 4, 6, 9, "Valor Alto / Excesso", excess_value, "FCE4D6")
-        ws["D10"].number_format = 'R$ #,##0.00'
-        _write_card(ws, 7, 9, 9, "Valor parado", stopped_value, "D9D9D9")
-        ws["G10"].number_format = 'R$ #,##0.00'
-        _write_card(ws, 10, 12, 9, "% estoque em atenção", problem_share, "F4CCCC")
-        ws["J10"].number_format = '0.0%'
+        ws.merge_cells("A9:L9")
+        ws["A9"] = "LEITURA RÁPIDA"
+        ws["A9"].fill = PatternFill("solid", fgColor=NAVY)
+        ws["A9"].font = Font(color=WHITE, bold=True, size=12)
+        ws["A9"].alignment = Alignment(horizontal="left")
 
-        ws.merge_cells("A13:L13")
-        ws["A13"] = "RESUMO EXECUTIVO"
-        ws["A13"].fill = PatternFill("solid", fgColor=NAVY)
-        ws["A13"].font = Font(color=WHITE, bold=True, size=12)
-        ws["A13"].alignment = Alignment(horizontal="left")
-
-        executive_lines = []
+        quick_lines = []
         if best_sales is not None:
             share = float(best_sales[revenue_col]) / total_revenue if total_revenue else 0
-            executive_lines.append(
-                f"• Maior faturamento: {best_sales['linha']} — {brl(best_sales[revenue_col])} ({share:.1%} do total)."
+            quick_lines.append(
+                f"• Maior faturamento: {best_sales['linha']} — {share:.1%} do total."
             )
-        if biggest_excess is not None:
-            executive_lines.append(
-                f"• Maior concentração em Alto/Excesso: {biggest_excess['linha']} — {brl(biggest_excess['valor_alto_excesso'])}."
-            )
-        if biggest_stock is not None:
-            executive_lines.append(
-                f"• Maior valor de estoque: {biggest_stock['linha']} — {brl(biggest_stock['valor_estoque'])}."
-            )
-        executive_lines.append(
-            f"• Estoque em itens Alto/Excesso + Parados representa {problem_share:.1%} do valor total de estoque."
+        quick_lines.append(
+            f"• Estoque em Alto/Excesso + Parados: {problem_share:.1%} do valor total."
         )
-        for offset, line in enumerate(executive_lines, start=14):
+
+        for offset, line in enumerate(quick_lines, start=10):
             ws.merge_cells(start_row=offset, start_column=1, end_row=offset, end_column=12)
             ws.cell(offset, 1).value = line
             ws.cell(offset, 1).alignment = Alignment(wrap_text=True)
             ws.cell(offset, 1).font = Font(size=10)
 
-        # Gráficos como imagens para máxima compatibilidade com versões do Excel.
+        # Dois gráficos principais para leitura rápida.
         line_labels = summary["linha"].tolist()
         line_colors = [
             LINE_CHART_COLORS[i % len(LINE_CHART_COLORS)]
             for i in range(len(line_labels))
         ]
 
-        status_counts = products["status"].value_counts()
-        status_color_map = dict(zip(STATUS_COLOR_DOMAIN, STATUS_COLOR_RANGE))
-        status_colors = [
-            status_color_map.get(status, "#94A3B8")
-            for status in status_counts.index
-        ]
-
-        abc_counts = (
-            products["curva_abc"]
-            .value_counts()
-            .reindex(["A", "B", "C"], fill_value=0)
-        )
-        abc_color_map = dict(zip(ABC_COLOR_DOMAIN, ABC_COLOR_RANGE))
-        abc_colors = [
-            abc_color_map.get(curva, "#94A3B8")
-            for curva in abc_counts.index
-        ]
-
-        chart_buffers = []
-
-        chart_buffers.append(
+        chart_buffers = [
             _excel_pie_image(
                 line_labels,
                 summary[revenue_col].tolist(),
                 f"Participação do faturamento por linha — {period_days} dias",
-                "Mostra quanto cada linha representa do faturamento total no período escolhido.",
+                "Mostra onde o faturamento está concentrado.",
                 line_colors,
-            )
-        )
-        chart_buffers.append(
-            _excel_pie_image(
-                line_labels,
-                summary["valor_estoque"].tolist(),
-                "Participação do valor do estoque por linha",
-                "Mostra onde está concentrado o capital em estoque entre as linhas.",
-                line_colors,
-            )
-        )
-        chart_buffers.append(
-            _excel_pie_image(
-                status_counts.index.tolist(),
-                status_counts.values.tolist(),
-                "Distribuição dos produtos por status",
-                "Mostra a quantidade de SKUs em Ruptura, Risco, OK, Alto, Excesso e situações sem venda.",
-                status_colors,
-            )
-        )
-        chart_buffers.append(
-            _excel_pie_image(
-                abc_counts.index.tolist(),
-                abc_counts.values.tolist(),
-                "Distribuição Curva ABC",
-                "Mostra quantos SKUs estão nas Curvas A, B e C conforme a participação no faturamento.",
-                abc_colors,
-            )
-        )
+            ),
+            _excel_abc_compare_image(products, period_days),
+        ]
 
-        chart_positions = ["A19", "G19", "A40", "G40"]
+        chart_positions = ["A13", "G13"]
         for buffer, position in zip(chart_buffers, chart_positions):
             image = XLImage(buffer)
             image.width = 620
             image.height = 385
             ws.add_image(image, position)
-
-        ws.merge_cells("A62:L62")
-        ws["A62"] = "COMO LER O RELATÓRIO"
-        ws["A62"].fill = PatternFill("solid", fgColor=NAVY)
-        ws["A62"].font = Font(color=WHITE, bold=True)
-        guide = [
-            ("RUPTURA", "Cobertura abaixo do limite definido para a curva."),
-            ("RISCO RUPTURA", "Cobertura baixa, próxima da faixa de ruptura."),
-            ("OK", "Estoque dentro da faixa esperada."),
-            ("ALTO / EXCESSO", "Capital acima da faixa de cobertura."),
-            ("PARADO", "Saldo positivo sem venda no período."),
-        ]
-        for row_num, (label, desc) in enumerate(guide, start=63):
-            ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3)
-            ws.merge_cells(start_row=row_num, start_column=4, end_row=row_num, end_column=12)
-            ws.cell(row_num, 1).value = label
-            ws.cell(row_num, 1).font = Font(bold=True)
-            ws.cell(row_num, 4).value = desc
 
         # Demais abas.
         for sheet_name in ("RESUMO LINHAS", "PRODUTOS", "ALTO EXCESSO", "ESTOQUE PARADO"):
@@ -1805,116 +1819,43 @@ def render_analise_linha():
 
     st.markdown("### Visão executiva")
     cols = st.columns(4)
-    cols[0].markdown(_card_html("SKUs analisados", integer(len(products)), f"{products['linha'].nunique()} linhas"), unsafe_allow_html=True)
-    cols[1].markdown(_card_html(f"Faturamento {period_days}d", brl(total_revenue), "valor estimado por preço de venda"), unsafe_allow_html=True)
-    cols[2].markdown(_card_html("Valor do estoque", brl(stock_value), f"{integer(total_stock)} unidades"), unsafe_allow_html=True)
-    cols[3].markdown(_card_html("Estoque em atenção", f"{problem_share:.1%}", "Alto/Excesso + parado"), unsafe_allow_html=True)
+    cols[0].markdown(
+        _card_html("SKUs analisados", integer(len(products)), f"{products['linha'].nunique()} linhas"),
+        unsafe_allow_html=True,
+    )
+    cols[1].markdown(
+        _card_html(f"Faturamento {period_days}d", brl(total_revenue), "período analisado"),
+        unsafe_allow_html=True,
+    )
+    cols[2].markdown(
+        _card_html("Valor do estoque", brl(stock_value), f"{integer(total_stock)} unidades"),
+        unsafe_allow_html=True,
+    )
+    cols[3].markdown(
+        _card_html("Estoque em atenção", f"{problem_share:.1%}", "Alto/Excesso + parado"),
+        unsafe_allow_html=True,
+    )
 
-    cols2 = st.columns(4)
-    cols2[0].markdown(_card_html("Itens em ruptura", integer(dangerous_mask.sum()), "abaixo do limite de ruptura"), unsafe_allow_html=True)
-    cols2[1].markdown(_card_html("Itens Alto/Excesso", integer(high_mask.sum()), brl(excess_value)), unsafe_allow_html=True)
-    cols2[2].markdown(_card_html("Itens parados", integer(stopped_mask.sum()), brl(stopped_value)), unsafe_allow_html=True)
-    cols2[3].markdown(_card_html("Curva A", integer((products['curva_abc'] == 'A').sum()), "itens de maior peso no faturamento"), unsafe_allow_html=True)
+    with st.expander("Ver outros indicadores", expanded=False):
+        extras = st.columns(4)
+        extras[0].metric("Itens em ruptura", int(dangerous_mask.sum()))
+        extras[1].metric("Itens Alto/Excesso", int(high_mask.sum()))
+        extras[2].metric("Itens parados", int(stopped_mask.sum()))
+        extras[3].metric("Curva A", int((products["curva_abc"] == "A").sum()))
 
     if not summary.empty:
         best_sales = summary.loc[summary[revenue_col].idxmax()]
-        biggest_excess = summary.loc[summary["valor_alto_excesso"].idxmax()]
-        biggest_stock = summary.loc[summary["valor_estoque"].idxmax()]
         share = float(best_sales[revenue_col]) / total_revenue if total_revenue else 0
-
-        st.markdown("### Resumo executivo")
         st.info(
             f"**{best_sales['linha']}** lidera o faturamento com **{share:.1%}** do total. "
-            f"O maior valor concentrado em itens Alto/Excesso está em **{biggest_excess['linha']}** "
-            f"({brl(biggest_excess['valor_alto_excesso'])}). "
-            f"A maior concentração de estoque está em **{biggest_stock['linha']}** "
-            f"({brl(biggest_stock['valor_estoque'])})."
+            f"Estoque em Alto/Excesso + Parados representa **{problem_share:.1%}** do valor do estoque."
         )
-
-    st.markdown("### Gráficos gerenciais")
-    st.caption(
-        "Os gráficos abaixo mostram participação no faturamento, concentração do valor do estoque, "
-        "situação dos SKUs e representatividade das Curvas ABC."
-    )
 
     line_domain = summary["linha"].tolist()
     line_colors = [
         LINE_CHART_COLORS[i % len(LINE_CHART_COLORS)]
         for i in range(len(line_domain))
     ]
-
-    g1, g2 = st.columns(2)
-
-    revenue_pie = summary[["linha", revenue_col]].copy()
-    with g1:
-        _pie_chart(
-            revenue_pie,
-            "linha",
-            revenue_col,
-            f"Participação do faturamento por linha — {period_days} dias",
-            "Mostra quanto cada linha representa do faturamento total no período escolhido. Quanto maior a fatia, maior a participação daquela linha nas vendas.",
-            "Faturamento",
-            color_domain=line_domain,
-            color_range=line_colors,
-        )
-
-    stock_pie = summary[["linha", "valor_estoque"]].copy()
-    with g2:
-        _pie_chart(
-            stock_pie,
-            "linha",
-            "valor_estoque",
-            "Participação do valor do estoque por linha",
-            "Mostra como o valor total do estoque está distribuído entre as linhas. Ajuda a identificar onde está concentrado o capital em estoque.",
-            "Valor do estoque",
-            color_domain=line_domain,
-            color_range=line_colors,
-        )
-
-    g3, g4 = st.columns(2)
-
-    status_pie = (
-        products["status"]
-        .value_counts()
-        .rename_axis("Status")
-        .reset_index(name="Itens")
-    )
-    with g3:
-        _pie_chart(
-            status_pie,
-            "Status",
-            "Itens",
-            "Distribuição dos produtos por status",
-            "Mostra quantos SKUs estão em cada situação de cobertura: Ruptura, Risco de Ruptura, OK, Alto, Excesso e situações sem venda.",
-            "Itens",
-            color_domain=STATUS_COLOR_DOMAIN,
-            color_range=STATUS_COLOR_RANGE,
-        )
-
-    abc_pie = (
-        products["curva_abc"]
-        .value_counts()
-        .reindex(["A", "B", "C"], fill_value=0)
-        .rename_axis("Curva")
-        .reset_index(name="Itens")
-    )
-    with g4:
-        _pie_chart(
-            abc_pie,
-            "Curva",
-            "Itens",
-            "Distribuição Curva ABC",
-            "Mostra a quantidade de SKUs em A, B e C conforme a participação acumulada no faturamento. A reúne os itens de maior relevância financeira.",
-            "Itens",
-            color_domain=ABC_COLOR_DOMAIN,
-            color_range=ABC_COLOR_RANGE,
-        )
-
-    st.markdown("### Representatividade por Curva ABC — vendas x estoque")
-    st.caption(
-        "Compara quanto cada Curva A, B e C representa do faturamento do período "
-        "com quanto representa do valor total do estoque. A diferença é mostrada em pontos percentuais."
-    )
 
     abc_rep = (
         products.groupby("curva_abc", dropna=False)
@@ -1929,7 +1870,6 @@ def render_analise_linha():
 
     total_abc_faturamento = float(abc_rep["faturamento"].sum())
     total_abc_estoque = float(abc_rep["valor_estoque"].sum())
-
     abc_rep["% Vendas"] = np.where(
         total_abc_faturamento != 0,
         abc_rep["faturamento"] / total_abc_faturamento * 100,
@@ -1950,9 +1890,12 @@ def render_analise_linha():
         var_name="Indicador",
         value_name="Percentual",
     )
-
     abc_compare_spec = {
-        "mark": {"type": "bar", "cornerRadiusTopLeft": 3, "cornerRadiusTopRight": 3},
+        "mark": {
+            "type": "bar",
+            "cornerRadiusTopLeft": 3,
+            "cornerRadiusTopRight": 3,
+        },
         "encoding": {
             "x": {
                 "field": "Curva",
@@ -1967,7 +1910,6 @@ def render_analise_linha():
                 "type": "quantitative",
                 "title": "Participação (%)",
                 "scale": {"domain": [0, 100]},
-                "axis": {"format": ".0f"},
             },
             "color": {
                 "field": "Indicador",
@@ -1989,79 +1931,144 @@ def render_analise_linha():
         "view": {"stroke": None},
     }
 
-    st.vega_lite_chart(
-        abc_chart,
-        abc_compare_spec,
-        use_container_width=True,
-    )
+    st.markdown("### Leitura principal")
+    main1, main2 = st.columns(2)
 
-    abc_rep_view = abc_rep[
-        [
+    with main1:
+        revenue_pie = summary[["linha", revenue_col]].copy()
+        _pie_chart(
+            revenue_pie,
+            "linha",
+            revenue_col,
+            f"Faturamento por linha — {period_days} dias",
+            "Onde as vendas estão concentradas.",
+            "Faturamento",
+            color_domain=line_domain,
+            color_range=line_colors,
+        )
+
+    with main2:
+        st.markdown("**Curva ABC — vendas x estoque**")
+        st.caption("Compara participação nas vendas com participação no valor do estoque.")
+        st.vega_lite_chart(
+            abc_chart,
+            abc_compare_spec,
+            use_container_width=True,
+        )
+
+    with st.expander("Ver análises complementares", expanded=False):
+        comp1, comp2, comp3 = st.columns(3)
+
+        stock_pie = summary[["linha", "valor_estoque"]].copy()
+        with comp1:
+            _pie_chart(
+                stock_pie,
+                "linha",
+                "valor_estoque",
+                "Valor do estoque por linha",
+                "Onde o capital em estoque está concentrado.",
+                "Valor do estoque",
+                color_domain=line_domain,
+                color_range=line_colors,
+            )
+
+        status_pie = (
+            products["status"]
+            .value_counts()
+            .rename_axis("Status")
+            .reset_index(name="Itens")
+        )
+        with comp2:
+            _pie_chart(
+                status_pie,
+                "Status",
+                "Itens",
+                "Produtos por status",
+                "Quantidade de SKUs por situação de cobertura.",
+                "Itens",
+                color_domain=STATUS_COLOR_DOMAIN,
+                color_range=STATUS_COLOR_RANGE,
+            )
+
+        abc_pie = (
+            products["curva_abc"]
+            .value_counts()
+            .reindex(["A", "B", "C"], fill_value=0)
+            .rename_axis("Curva")
+            .reset_index(name="Itens")
+        )
+        with comp3:
+            _pie_chart(
+                abc_pie,
+                "Curva",
+                "Itens",
+                "SKUs por Curva ABC",
+                "Quantidade de produtos classificados em A, B e C.",
+                "Itens",
+                color_domain=ABC_COLOR_DOMAIN,
+                color_range=ABC_COLOR_RANGE,
+            )
+
+    with st.expander("Ver números da Curva ABC", expanded=False):
+        abc_rep_view = abc_rep[
+            [
+                "Curva",
+                "% Vendas",
+                "% Valor Estoque",
+                "Diferença (p.p.)",
+                "faturamento",
+                "valor_estoque",
+            ]
+        ].copy()
+        abc_rep_view.columns = [
             "Curva",
             "% Vendas",
             "% Valor Estoque",
             "Diferença (p.p.)",
-            "faturamento",
-            "valor_estoque",
-        ]
-    ].copy()
-    abc_rep_view.columns = [
-        "Curva",
-        "% Vendas",
-        "% Valor Estoque",
-        "Diferença (p.p.)",
-        "Faturamento",
-        "Valor Estoque",
-    ]
-
-    st.dataframe(
-        abc_rep_view,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "% Vendas": st.column_config.NumberColumn(format="%.1f%%"),
-            "% Valor Estoque": st.column_config.NumberColumn(format="%.1f%%"),
-            "Diferença (p.p.)": st.column_config.NumberColumn(format="%+.1f"),
-            "Faturamento": st.column_config.NumberColumn(format="R$ %.2f"),
-            "Valor Estoque": st.column_config.NumberColumn(format="R$ %.2f"),
-        },
-    )
-
-    st.caption(
-        "Leitura: diferença positiva indica que a curva participa mais das vendas do que do valor do estoque; "
-        "diferença negativa indica maior concentração de capital em estoque em relação à participação nas vendas."
-    )
-
-    st.markdown("### Ranking gerencial por linha")
-    manager = _friendly_summary(summary, long_days)[
-        [
-            "Linha",
-            "SKUs",
-            "Faturamento 90d",
-            f"Faturamento {long_days}d",
-            "Estoque (un.)",
+            "Faturamento",
             "Valor Estoque",
-            "Valor Alto/Excesso",
-            "Valor Parado",
-            "Ruptura",
-            "Risco Ruptura",
-            "Excesso",
-            "Parados",
         ]
-    ].copy()
+        st.dataframe(
+            abc_rep_view,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "% Vendas": st.column_config.NumberColumn(format="%.1f%%"),
+                "% Valor Estoque": st.column_config.NumberColumn(format="%.1f%%"),
+                "Diferença (p.p.)": st.column_config.NumberColumn(format="%+.1f"),
+                "Faturamento": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Valor Estoque": st.column_config.NumberColumn(format="R$ %.2f"),
+            },
+        )
 
-    st.dataframe(
-        manager,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Faturamento 90d": st.column_config.NumberColumn(format="R$ %.2f"),
-            f"Faturamento {long_days}d": st.column_config.NumberColumn(format="R$ %.2f"),
-            "Valor Estoque": st.column_config.NumberColumn(format="R$ %.2f"),
-            "Valor Alto/Excesso": st.column_config.NumberColumn(format="R$ %.2f"),
-            "Valor Parado": st.column_config.NumberColumn(format="R$ %.2f"),
-        },
-    )
+    with st.expander("Ver ranking gerencial por linha", expanded=False):
+        manager = _friendly_summary(summary, long_days)[
+            [
+                "Linha",
+                "SKUs",
+                "Faturamento 90d",
+                f"Faturamento {long_days}d",
+                "Valor Estoque",
+                "Valor Alto/Excesso",
+                "Valor Parado",
+                "Ruptura",
+                "Excesso",
+                "Parados",
+            ]
+        ].copy()
+
+        st.dataframe(
+            manager,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Faturamento 90d": st.column_config.NumberColumn(format="R$ %.2f"),
+                f"Faturamento {long_days}d": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Valor Estoque": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Valor Alto/Excesso": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Valor Parado": st.column_config.NumberColumn(format="R$ %.2f"),
+            },
+        )
 
     st.markdown("### Detalhamento")
     selected_line = st.selectbox(
