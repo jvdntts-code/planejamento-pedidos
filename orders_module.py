@@ -1,3 +1,4 @@
+import hashlib
 import io
 import re
 from datetime import datetime
@@ -33,7 +34,7 @@ def money_br(value):
 
 
 def extract_pdf_text(uploaded):
-    raw = uploaded.getvalue()
+    raw = uploaded if isinstance(uploaded, (bytes, bytearray)) else uploaded.getvalue()
     reader = PdfReader(io.BytesIO(raw))
     pages = []
     for page in reader.pages:
@@ -318,67 +319,72 @@ def export_order_xlsx(header, items):
     return out.getvalue()
 
 
-def render_gestao_pedidos():
-    st.title("🧾 Gestão de Pedidos")
-    st.caption(
-        "Importe o PDF do Pedido Fornecedor e transforme o documento em acompanhamento de compra."
-    )
+def _order_attachment_id(file_bytes):
+    return hashlib.sha256(file_bytes).hexdigest()[:16]
 
-    with st.sidebar:
-        st.markdown("---")
-        st.markdown("### Gestão de Pedidos")
-        ciclo_meses = st.number_input(
-            "Intervalo entre compras (meses)",
-            min_value=1,
-            max_value=24,
-            value=2,
-            step=1,
-            key="gestao_ciclo_meses",
-            help=(
-                "Define quantos meses após a data do pedido o NEXO deve indicar "
-                "como próxima compra."
-            ),
-        )
-        st.caption(
-            f"Próxima compra será projetada {int(ciclo_meses)} "
-            f"{'mês' if int(ciclo_meses) == 1 else 'meses'} após cada pedido."
-        )
 
-    with st.expander("📘 Como funciona", expanded=False):
-        st.markdown(
-            """
-            1. Importe o **PDF original do Pedido Fornecedor**.
-            2. O NEXO lê fornecedor, número do pedido, data, valor e itens.
-            3. Confira os dados extraídos antes de utilizá-los.
-            4. A tabela de itens permite informar **Qtd Recebida** para acompanhar recebimentos parciais.
-            5. O período até a próxima compra é definido no campo **Intervalo entre compras (meses)**, na barra lateral.
+def _ensure_order_library():
+    if "gestao_pedidos_anexos" not in st.session_state:
+        st.session_state["gestao_pedidos_anexos"] = {}
+    if "gestao_pedido_selecionado" not in st.session_state:
+        st.session_state["gestao_pedido_selecionado"] = None
+    return st.session_state["gestao_pedidos_anexos"]
 
-            Esta primeira versão foi preparada para o layout do Pedido Fornecedor usado como modelo inicial.
-            """
-        )
 
-    uploaded = st.file_uploader(
-        "Importar Pedido Fornecedor em PDF",
-        type=["pdf"],
-        key="gestao_pedido_pdf",
-        help="Use o PDF original gerado pelo sistema.",
-    )
+def _add_order_attachments(uploaded_files):
+    library = _ensure_order_library()
+    added = 0
+    errors = []
 
-    if not uploaded:
-        st.info("Envie um PDF de pedido para começar.")
-        return
+    for uploaded in uploaded_files or []:
+        raw = uploaded.getvalue()
+        attachment_id = _order_attachment_id(raw)
 
-    try:
-        header, items, not_parsed, extracted_text = parse_order_pdf(uploaded)
-    except Exception as exc:
-        st.error(str(exc))
-        return
+        if attachment_id in library:
+            continue
+
+        try:
+            header, items, not_parsed, extracted_text = parse_order_pdf(raw)
+            library[attachment_id] = {
+                "id": attachment_id,
+                "filename": uploaded.name,
+                "bytes": raw,
+                "header": header,
+                "items": items,
+                "not_parsed": not_parsed,
+                "extracted_text": extracted_text,
+            }
+            added += 1
+        except Exception as exc:
+            errors.append(f"{uploaded.name}: {exc}")
+
+    return added, errors
+
+
+def _render_order_detail(order_data, ciclo_meses):
+    header = dict(order_data["header"])
+    items = order_data["items"].copy()
+    not_parsed = order_data["not_parsed"]
+    extracted_text = order_data["extracted_text"]
 
     header["Ciclo Meses"] = int(ciclo_meses)
     header["Proxima Compra"] = calculate_next_cycle(
         header.get("Data Pedido", ""),
         int(ciclo_meses),
     )
+
+    top_left, top_right = st.columns([1, 5])
+    with top_left:
+        if st.button(
+            "← Voltar",
+            use_container_width=True,
+            key=f"voltar_pedidos_{order_data['id']}",
+        ):
+            st.session_state["gestao_pedido_selecionado"] = None
+            st.rerun()
+
+    with top_right:
+        st.caption(f"📎 Anexo: {order_data['filename']}")
 
     st.success(
         f"Pedido reconhecido: {header.get('Pedido') or 'sem número'} | "
@@ -431,7 +437,7 @@ def render_gestao_pedidos():
         "O saldo pendente e o status são recalculados logo abaixo."
     )
 
-    editor_key = f"order_items_{header.get('Pedido')}_{uploaded.name}"
+    editor_key = f"order_items_{order_data['id']}"
     edited = st.data_editor(
         items,
         use_container_width=True,
@@ -469,6 +475,7 @@ def render_gestao_pedidos():
     )
 
     managed = update_receipt_columns(edited)
+    st.session_state["gestao_pedidos_anexos"][order_data["id"]]["items"] = managed.copy()
 
     received_qty = float(managed["Qtd Recebida"].sum())
     pending_qty = float(managed["Qtd Pendente"].sum())
@@ -508,8 +515,17 @@ def render_gestao_pedidos():
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
         type="primary",
-        key="export_order_xlsx",
+        key=f"export_order_xlsx_{order_data['id']}",
     )
+
+    with st.expander("📄 Ver PDF anexado"):
+        st.download_button(
+            "📎 Baixar PDF original",
+            data=order_data["bytes"],
+            file_name=order_data["filename"],
+            mime="application/pdf",
+            key=f"download_pdf_{order_data['id']}",
+        )
 
     with st.expander("🔧 Diagnóstico da leitura do PDF"):
         st.caption(
@@ -520,5 +536,151 @@ def render_gestao_pedidos():
             extracted_text,
             height=220,
             disabled=True,
-            key="order_extracted_text",
+            key=f"order_extracted_text_{order_data['id']}",
         )
+
+
+def render_gestao_pedidos():
+    st.title("🧾 Gestão de Pedidos")
+    st.caption(
+        "Centralize seus pedidos em PDF e abra cada pedido para acompanhar itens, recebimentos e próxima compra."
+    )
+
+    library = _ensure_order_library()
+
+    with st.sidebar:
+        st.markdown("---")
+        st.markdown("### Gestão de Pedidos")
+        ciclo_meses = st.number_input(
+            "Intervalo entre compras (meses)",
+            min_value=1,
+            max_value=24,
+            value=2,
+            step=1,
+            key="gestao_ciclo_meses",
+            help=(
+                "Define quantos meses após a data do pedido o NEXO deve indicar "
+                "como próxima compra."
+            ),
+        )
+        st.caption(
+            f"Próxima compra será projetada {int(ciclo_meses)} "
+            f"{'mês' if int(ciclo_meses) == 1 else 'meses'} após cada pedido."
+        )
+
+    selected_id = st.session_state.get("gestao_pedido_selecionado")
+    if selected_id and selected_id in library:
+        _render_order_detail(library[selected_id], ciclo_meses)
+        return
+    elif selected_id:
+        st.session_state["gestao_pedido_selecionado"] = None
+
+    st.markdown("### Pedidos anexados")
+
+    with st.expander("➕ Anexar pedido(s) em PDF", expanded=not bool(library)):
+        st.caption(
+            "Você pode selecionar vários PDFs de uma vez. Cada arquivo será transformado em um pedido na lista abaixo."
+        )
+        uploaded_files = st.file_uploader(
+            "Selecionar Pedido(s) Fornecedor em PDF",
+            type=["pdf"],
+            accept_multiple_files=True,
+            key="gestao_pedidos_pdf_multiplos",
+            help="Use os PDFs originais gerados pelo sistema.",
+        )
+
+        if uploaded_files:
+            added, errors = _add_order_attachments(uploaded_files)
+            if added:
+                st.success(f"{added} pedido(s) adicionado(s) à tela.")
+            for error in errors:
+                st.error(error)
+
+    if not library:
+        st.info("Ainda não há pedidos anexados. Use a opção acima para adicionar o primeiro PDF.")
+        return
+
+    search = st.text_input(
+        "Buscar pedido ou fornecedor",
+        key="gestao_busca_pedidos",
+        placeholder="Ex.: 7432 ou VALCLEI",
+    ).strip().lower()
+
+    records = []
+    for attachment_id, order_data in library.items():
+        header = order_data["header"]
+        records.append(
+            {
+                "id": attachment_id,
+                "pedido": str(header.get("Pedido") or ""),
+                "fornecedor": str(header.get("Fornecedor") or ""),
+                "data": str(header.get("Data Pedido") or ""),
+                "valor": float(header.get("Valor Pedido", 0) or 0),
+                "itens": int(header.get("Itens", 0) or 0),
+                "filename": order_data["filename"],
+            }
+        )
+
+    def date_sort_value(record):
+        try:
+            return datetime.strptime(record["data"], "%d/%m/%Y")
+        except Exception:
+            return datetime.min
+
+    records.sort(key=date_sort_value, reverse=True)
+
+    if search:
+        records = [
+            rec for rec in records
+            if search in rec["pedido"].lower()
+            or search in rec["fornecedor"].lower()
+            or search in rec["filename"].lower()
+        ]
+
+    total_value = sum(rec["valor"] for rec in records)
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Pedidos anexados", len(records))
+    k2.metric("Valor listado", money_br(total_value))
+    k3.metric("Arquivos PDF", len(records))
+
+    if not records:
+        st.warning("Nenhum pedido encontrado para essa busca.")
+        return
+
+    for rec in records:
+        with st.container(border=True):
+            col_main, col_meta, col_actions = st.columns([3.2, 2, 1.25])
+
+            with col_main:
+                st.markdown(f"### 📎 Pedido {rec['pedido'] or 'sem número'}")
+                st.markdown(f"**{rec['fornecedor'] or 'Fornecedor não identificado'}**")
+                st.caption(rec["filename"])
+
+            with col_meta:
+                st.markdown(f"**Data:** {rec['data'] or '—'}")
+                st.markdown(f"**Valor:** {money_br(rec['valor'])}")
+                st.markdown(f"**Itens:** {rec['itens']}")
+
+            with col_actions:
+                if st.button(
+                    "Abrir pedido",
+                    use_container_width=True,
+                    type="primary",
+                    key=f"abrir_pedido_{rec['id']}",
+                ):
+                    st.session_state["gestao_pedido_selecionado"] = rec["id"]
+                    st.rerun()
+
+                if st.button(
+                    "Remover",
+                    use_container_width=True,
+                    key=f"remover_pedido_{rec['id']}",
+                ):
+                    library.pop(rec["id"], None)
+                    st.rerun()
+
+    st.caption(
+        "Os PDFs anexados ficam disponíveis durante esta sessão do NEXO. "
+        "Eles não são enviados ao repositório público do GitHub."
+    )
+
