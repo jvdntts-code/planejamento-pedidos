@@ -2070,6 +2070,136 @@ def render_analise_linha():
             },
         )
 
+    st.markdown("### Análise por Curva ABC")
+    st.caption(
+        "Veja, dentro de cada curva, quantos produtos estão em cada status, "
+        "o valor de estoque correspondente e quais são os itens."
+    )
+
+    abc_status_order = [
+        "EXCESSO",
+        "ALTO",
+        "OK",
+        "RISCO DE RUPTURA",
+        "RUPTURA",
+    ]
+
+    curva_a_tab, curva_b_tab, curva_c_tab = st.tabs(
+        ["Curva A", "Curva B", "Curva C"]
+    )
+
+    for curva_nome, curva_tab in zip(
+        ["A", "B", "C"],
+        [curva_a_tab, curva_b_tab, curva_c_tab],
+    ):
+        with curva_tab:
+            curva_df = products[
+                products["curva_abc"].eq(curva_nome)
+                & products["status"].isin(abc_status_order)
+            ].copy()
+
+            total_curva_itens = len(curva_df)
+            total_curva_valor = float(curva_df["valor_estoque"].sum())
+
+            kpi1, kpi2 = st.columns(2)
+            kpi1.metric(
+                f"Itens Curva {curva_nome}",
+                integer(total_curva_itens),
+            )
+            kpi2.metric(
+                "Valor de estoque",
+                brl(total_curva_valor),
+            )
+
+            resumo_status = (
+                curva_df.groupby("status", dropna=False)
+                .agg(
+                    Itens=("codigo", "count"),
+                    Valor_Estoque=("valor_estoque", "sum"),
+                )
+                .reindex(abc_status_order, fill_value=0)
+                .reset_index()
+                .rename(
+                    columns={
+                        "status": "Status",
+                        "Valor_Estoque": "Valor Estoque",
+                    }
+                )
+            )
+            resumo_status["% Valor da Curva"] = np.where(
+                total_curva_valor != 0,
+                resumo_status["Valor Estoque"] / total_curva_valor * 100,
+                0,
+            )
+
+            st.dataframe(
+                resumo_status,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Itens": st.column_config.NumberColumn(format="%d"),
+                    "Valor Estoque": st.column_config.NumberColumn(format="R$ %.2f"),
+                    "% Valor da Curva": st.column_config.NumberColumn(format="%.1f%%"),
+                },
+            )
+
+            status_escolhido = st.selectbox(
+                "Mostrar produtos",
+                ["Todos os status"] + abc_status_order,
+                key=f"abc_status_produtos_{curva_nome}",
+            )
+
+            itens_curva = curva_df.copy()
+            if status_escolhido != "Todos os status":
+                itens_curva = itens_curva[
+                    itens_curva["status"].eq(status_escolhido)
+                ].copy()
+
+            itens_view = _friendly_products(
+                itens_curva,
+                long_days,
+                period_days,
+            )[
+                [
+                    "Código",
+                    "Referência",
+                    "Descrição",
+                    "Linha",
+                    "Estoque",
+                    f"Faturamento {period_days}d",
+                    "Cobertura (dias)",
+                    "Status",
+                    "Valor Estoque",
+                ]
+            ].copy()
+
+            st.caption(
+                f"{len(itens_view)} produto(s) exibido(s)"
+                + (
+                    f" em {status_escolhido}"
+                    if status_escolhido != "Todos os status"
+                    else ""
+                )
+                + "."
+            )
+
+            st.dataframe(
+                itens_view,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    f"Faturamento {period_days}d": st.column_config.NumberColumn(
+                        format="R$ %.2f"
+                    ),
+                    "Cobertura (dias)": st.column_config.NumberColumn(
+                        format="%.1f"
+                    ),
+                    "Valor Estoque": st.column_config.NumberColumn(
+                        format="R$ %.2f"
+                    ),
+                },
+            )
+
     st.markdown("### Detalhamento")
     selected_line = st.selectbox(
         "Escolha uma linha para detalhar",
