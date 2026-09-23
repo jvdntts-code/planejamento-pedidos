@@ -1559,15 +1559,50 @@ def render_gestao_pedidos():
                             st.session_state["gestao_pedido_selecionado"] = rec["id"]
                             st.rerun()
 
-                        if st.button(
-                            "Remover",
-                            use_container_width=True,
-                            key=f"remover_pedido_{rec['id']}",
-                        ):
-                            ok, error = _remove_order(library, rec["id"])
-                            if not ok and error:
-                                st.error(error)
-                            else:
+                        delete_key = f"confirmar_exclusao_{rec['id']}"
+                        confirm_delete = bool(
+                            st.session_state.get(delete_key, False)
+                        )
+
+                        if not confirm_delete:
+                            if st.button(
+                                "Remover",
+                                use_container_width=True,
+                                key=f"remover_pedido_{rec['id']}",
+                            ):
+                                st.session_state[delete_key] = True
+                                st.rerun()
+                        else:
+                            st.warning(
+                                f"Excluir permanentemente o pedido "
+                                f"{rec['pedido'] or 'sem número'}?"
+                            )
+
+                            if st.button(
+                                "Excluir permanentemente",
+                                use_container_width=True,
+                                type="primary",
+                                key=f"confirmar_remocao_{rec['id']}",
+                            ):
+                                ok, error = _remove_order(
+                                    library,
+                                    rec["id"],
+                                )
+                                if not ok and error:
+                                    st.error(error)
+                                else:
+                                    st.session_state.pop(
+                                        delete_key,
+                                        None,
+                                    )
+                                    st.rerun()
+
+                            if st.button(
+                                "Cancelar",
+                                use_container_width=True,
+                                key=f"cancelar_remocao_{rec['id']}",
+                            ):
+                                st.session_state.pop(delete_key, None)
                                 st.rerun()
 
     if persistence_ready:
