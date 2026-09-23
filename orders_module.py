@@ -647,37 +647,84 @@ def render_gestao_pedidos():
         st.warning("Nenhum pedido encontrado para essa busca.")
         return
 
+    meses_pt = {
+        1: "JANEIRO", 2: "FEVEREIRO", 3: "MARÇO", 4: "ABRIL",
+        5: "MAIO", 6: "JUNHO", 7: "JULHO", 8: "AGOSTO",
+        9: "SETEMBRO", 10: "OUTUBRO", 11: "NOVEMBRO", 12: "DEZEMBRO",
+    }
+
+    grupos = {}
     for rec in records:
-        with st.container(border=True):
-            col_main, col_meta, col_actions = st.columns([3.2, 2, 1.25])
+        try:
+            dt = datetime.strptime(rec["data"], "%d/%m/%Y")
+            chave = (dt.year, dt.month)
+            titulo_mes = f"{meses_pt[dt.month]} {dt.year}"
+        except Exception:
+            chave = (0, 0)
+            titulo_mes = "SEM DATA"
 
-            with col_main:
-                st.markdown(f"### 📎 Pedido {rec['pedido'] or 'sem número'}")
-                st.markdown(f"**{rec['fornecedor'] or 'Fornecedor não identificado'}**")
-                st.caption(rec["filename"])
+        grupos.setdefault(
+            chave,
+            {
+                "titulo": titulo_mes,
+                "pedidos": [],
+            },
+        )["pedidos"].append(rec)
 
-            with col_meta:
-                st.markdown(f"**Data:** {rec['data'] or '—'}")
-                st.markdown(f"**Valor:** {money_br(rec['valor'])}")
-                st.markdown(f"**Itens:** {rec['itens']}")
+    grupos_ordenados = sorted(
+        grupos.items(),
+        key=lambda item: item[0],
+        reverse=True,
+    )
 
-            with col_actions:
-                if st.button(
-                    "Abrir pedido",
-                    use_container_width=True,
-                    type="primary",
-                    key=f"abrir_pedido_{rec['id']}",
-                ):
-                    st.session_state["gestao_pedido_selecionado"] = rec["id"]
-                    st.rerun()
+    for indice_grupo, (_, grupo) in enumerate(grupos_ordenados):
+        pedidos_mes = grupo["pedidos"]
+        valor_mes = sum(rec["valor"] for rec in pedidos_mes)
+        qtd_mes = len(pedidos_mes)
 
-                if st.button(
-                    "Remover",
-                    use_container_width=True,
-                    key=f"remover_pedido_{rec['id']}",
-                ):
-                    library.pop(rec["id"], None)
-                    st.rerun()
+        titulo_expander = (
+            f"📅 {grupo['titulo']}  •  "
+            f"{qtd_mes} {'pedido' if qtd_mes == 1 else 'pedidos'}  •  "
+            f"{money_br(valor_mes)}"
+        )
+
+        with st.expander(
+            titulo_expander,
+            expanded=(indice_grupo == 0),
+        ):
+            for rec in pedidos_mes:
+                with st.container(border=True):
+                    col_main, col_meta, col_actions = st.columns([3.2, 2, 1.25])
+
+                    with col_main:
+                        st.markdown(f"### 📎 Pedido {rec['pedido'] or 'sem número'}")
+                        st.markdown(
+                            f"**{rec['fornecedor'] or 'Fornecedor não identificado'}**"
+                        )
+                        st.caption(rec["filename"])
+
+                    with col_meta:
+                        st.markdown(f"**Data:** {rec['data'] or '—'}")
+                        st.markdown(f"**Valor:** {money_br(rec['valor'])}")
+                        st.markdown(f"**Itens:** {rec['itens']}")
+
+                    with col_actions:
+                        if st.button(
+                            "Abrir pedido",
+                            use_container_width=True,
+                            type="primary",
+                            key=f"abrir_pedido_{rec['id']}",
+                        ):
+                            st.session_state["gestao_pedido_selecionado"] = rec["id"]
+                            st.rerun()
+
+                        if st.button(
+                            "Remover",
+                            use_container_width=True,
+                            key=f"remover_pedido_{rec['id']}",
+                        ):
+                            library.pop(rec["id"], None)
+                            st.rerun()
 
     st.caption(
         "Os PDFs anexados ficam disponíveis durante esta sessão do NEXO. "
