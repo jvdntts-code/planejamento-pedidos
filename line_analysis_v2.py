@@ -1827,7 +1827,10 @@ def render_analise_linha():
         )
 
     st.markdown("### Gráficos gerenciais")
-    st.caption("Os quatro gráficos abaixo mostram participação, concentração de estoque e situação dos SKUs sob os critérios definidos na lateral.")
+    st.caption(
+        "Os gráficos abaixo mostram participação no faturamento, concentração do valor do estoque, "
+        "situação dos SKUs e representatividade das Curvas ABC."
+    )
 
     line_domain = summary["linha"].tolist()
     line_colors = [
@@ -1901,6 +1904,128 @@ def render_analise_linha():
             color_domain=ABC_COLOR_DOMAIN,
             color_range=ABC_COLOR_RANGE,
         )
+
+    st.markdown("### Representatividade por Curva ABC — vendas x estoque")
+    st.caption(
+        "Compara quanto cada Curva A, B e C representa do faturamento do período "
+        "com quanto representa do valor total do estoque. A diferença é mostrada em pontos percentuais."
+    )
+
+    abc_rep = (
+        products.groupby("curva_abc", dropna=False)
+        .agg(
+            faturamento=("faturamento_periodo", "sum"),
+            valor_estoque=("valor_estoque", "sum"),
+        )
+        .reindex(["A", "B", "C"], fill_value=0)
+        .reset_index()
+        .rename(columns={"curva_abc": "Curva"})
+    )
+
+    total_abc_faturamento = float(abc_rep["faturamento"].sum())
+    total_abc_estoque = float(abc_rep["valor_estoque"].sum())
+
+    abc_rep["% Vendas"] = np.where(
+        total_abc_faturamento != 0,
+        abc_rep["faturamento"] / total_abc_faturamento * 100,
+        0,
+    )
+    abc_rep["% Valor Estoque"] = np.where(
+        total_abc_estoque != 0,
+        abc_rep["valor_estoque"] / total_abc_estoque * 100,
+        0,
+    )
+    abc_rep["Diferença (p.p.)"] = (
+        abc_rep["% Vendas"] - abc_rep["% Valor Estoque"]
+    )
+
+    abc_chart = abc_rep.melt(
+        id_vars=["Curva"],
+        value_vars=["% Vendas", "% Valor Estoque"],
+        var_name="Indicador",
+        value_name="Percentual",
+    )
+
+    abc_compare_spec = {
+        "mark": {"type": "bar", "cornerRadiusTopLeft": 3, "cornerRadiusTopRight": 3},
+        "encoding": {
+            "x": {
+                "field": "Curva",
+                "type": "nominal",
+                "sort": ["A", "B", "C"],
+                "title": "Curva ABC",
+                "axis": {"labelAngle": 0},
+            },
+            "xOffset": {"field": "Indicador"},
+            "y": {
+                "field": "Percentual",
+                "type": "quantitative",
+                "title": "Participação (%)",
+                "scale": {"domain": [0, 100]},
+                "axis": {"format": ".0f"},
+            },
+            "color": {
+                "field": "Indicador",
+                "type": "nominal",
+                "title": None,
+                "legend": {"orient": "bottom"},
+            },
+            "tooltip": [
+                {"field": "Curva", "type": "nominal", "title": "Curva"},
+                {"field": "Indicador", "type": "nominal", "title": "Indicador"},
+                {
+                    "field": "Percentual",
+                    "type": "quantitative",
+                    "title": "Participação (%)",
+                    "format": ".1f",
+                },
+            ],
+        },
+        "view": {"stroke": None},
+    }
+
+    st.vega_lite_chart(
+        abc_chart,
+        abc_compare_spec,
+        use_container_width=True,
+    )
+
+    abc_rep_view = abc_rep[
+        [
+            "Curva",
+            "% Vendas",
+            "% Valor Estoque",
+            "Diferença (p.p.)",
+            "faturamento",
+            "valor_estoque",
+        ]
+    ].copy()
+    abc_rep_view.columns = [
+        "Curva",
+        "% Vendas",
+        "% Valor Estoque",
+        "Diferença (p.p.)",
+        "Faturamento",
+        "Valor Estoque",
+    ]
+
+    st.dataframe(
+        abc_rep_view,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "% Vendas": st.column_config.NumberColumn(format="%.1f%%"),
+            "% Valor Estoque": st.column_config.NumberColumn(format="%.1f%%"),
+            "Diferença (p.p.)": st.column_config.NumberColumn(format="%+.1f"),
+            "Faturamento": st.column_config.NumberColumn(format="R$ %.2f"),
+            "Valor Estoque": st.column_config.NumberColumn(format="R$ %.2f"),
+        },
+    )
+
+    st.caption(
+        "Leitura: diferença positiva indica que a curva participa mais das vendas do que do valor do estoque; "
+        "diferença negativa indica maior concentração de capital em estoque em relação à participação nas vendas."
+    )
 
     st.markdown("### Ranking gerencial por linha")
     manager = _friendly_summary(summary, long_days)[
