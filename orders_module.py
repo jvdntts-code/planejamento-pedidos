@@ -1406,7 +1406,6 @@ def render_gestao_pedidos():
                 "valor": float(header.get("Valor Pedido", 0) or 0),
                 "itens": int(header.get("Itens", 0) or 0),
                 "filename": order_data["filename"],
-                "pendente": _pending_value(order_data),
             }
         )
 
@@ -1427,7 +1426,7 @@ def render_gestao_pedidos():
         ]
 
     total_value = sum(rec["valor"] for rec in records)
-    total_pending = sum(rec["pendente"] for rec in records)
+    total_items = sum(rec["itens"] for rec in records)
     suppliers_count = len(
         {rec["fornecedor_key"] for rec in records if rec["fornecedor_key"]}
     )
@@ -1435,8 +1434,8 @@ def render_gestao_pedidos():
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Pedidos anexados", len(records))
     k2.metric("Fornecedores", suppliers_count)
-    k3.metric("Valor listado", money_br(total_value))
-    k4.metric("Valor ainda pendente", money_br(total_pending))
+    k3.metric("Itens comprados", total_items)
+    k4.metric("Valor comprado", money_br(total_value))
 
     if not records:
         st.warning("Nenhum pedido encontrado para essa busca.")
@@ -1472,7 +1471,6 @@ def render_gestao_pedidos():
     for indice_grupo, (_, grupo) in enumerate(grupos_ordenados):
         pedidos_mes = grupo["pedidos"]
         valor_mes = sum(rec["valor"] for rec in pedidos_mes)
-        pendente_mes = sum(rec["pendente"] for rec in pedidos_mes)
         qtd_mes = len(pedidos_mes)
         fornecedores_mes = len(
             {rec["fornecedor_key"] for rec in pedidos_mes if rec["fornecedor_key"]}
@@ -1489,12 +1487,11 @@ def render_gestao_pedidos():
             titulo_expander,
             expanded=(indice_grupo == 0),
         ):
-            m1, m2, m3, m4, m5 = st.columns(5)
+            m1, m2, m3, m4 = st.columns(4)
             m1.metric("Pedidos", qtd_mes)
             m2.metric("Fornecedores", fornecedores_mes)
             m3.metric("Itens", itens_mes)
             m4.metric("Comprado", money_br(valor_mes))
-            m5.metric("Pendente", money_br(pendente_mes))
 
             for rec in pedidos_mes:
                 with st.container(border=True):
@@ -1514,7 +1511,6 @@ def render_gestao_pedidos():
                         st.markdown(f"**Data:** {rec['data'] or '—'}")
                         st.markdown(f"**Valor:** {money_br(rec['valor'])}")
                         st.markdown(f"**Itens:** {rec['itens']}")
-                        st.markdown(f"**Pendente:** {money_br(rec['pendente'])}")
 
                         supplier_orders = _orders_for_supplier(
                             library,
