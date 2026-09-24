@@ -1,5 +1,16 @@
 [
   {
+    "id": "77f168ce73a7411dbea051cb9ec1cc73",
+    "title": "RACOR",
+    "description": "COMPRAR FILTRO 901376 RACOR.\n\nTT MIN: 310\nTT EST: 63 \nTT VDA: 225\nPREÇO LP: 91,25",
+    "due_date": "2026-09-24",
+    "priority": "Alta",
+    "category": "Compras",
+    "status": "Pendente",
+    "created_at": "2026-09-24T11:33:01",
+    "completed_at": ""
+  },
+  {
     "id": "2a98101a48384de5946a8c1a53a486bc",
     "title": "Autorizar Pagamento Vetor",
     "description": "NF 293725 \nR$ 108.521,32\nVenc.: 24/09/2026",
