@@ -1,5 +1,38 @@
 [
   {
+    "id": "5c1ac65537114960a51685b0abdf4683",
+    "title": "TAREFAS DIÁRIAS",
+    "description": "",
+    "due_date": "2026-09-25",
+    "priority": "Alta",
+    "category": "Compras",
+    "status": "Pendente",
+    "checklist": [
+      {
+        "id": "a8ddfd41bf03455abbba05e14547e14b",
+        "text": "93831 COTAÇÃO",
+        "done": false
+      },
+      {
+        "id": "348dccbddcea48f1937c7ff40a315f9e",
+        "text": "ENVIAR NOTA FISCAL DO ITEM 311591 PARA ISAQUE",
+        "done": false
+      },
+      {
+        "id": "bdf339fde7424c6f93ae871676cf585e",
+        "text": "RELACIONAR ITENS ISAPA COM PREÇOS DIVERGENTES",
+        "done": false
+      },
+      {
+        "id": "37f62aed5cc84e56b6c3caaeac99cb30",
+        "text": "AJUSTAR NOTAS FISCAIS BRENO",
+        "done": false
+      }
+    ],
+    "created_at": "2026-09-25T18:14:53",
+    "completed_at": ""
+  },
+  {
     "id": "4e1d30183c65421c8918fe9f461598c0",
     "title": "Enviar Pedidos",
     "description": "",
