@@ -50,9 +50,9 @@
     "due_date": "2026-09-23",
     "priority": "Alta",
     "category": "Compras",
-    "status": "Pendente",
+    "status": "Concluída",
     "created_at": "2026-09-23T11:50:41",
-    "completed_at": ""
+    "completed_at": "2026-09-25T17:54:12"
   },
   {
     "id": "255038a77a734f41aec42c6e648005e5",
