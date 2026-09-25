@@ -1,5 +1,17 @@
 [
   {
+    "id": "728888cf307c44709e3c0f52c0d1e427",
+    "title": "Enviar Pedido Mann",
+    "description": "",
+    "due_date": "2026-09-25",
+    "priority": "Alta",
+    "category": "Compras",
+    "status": "Pendente",
+    "checklist": [],
+    "created_at": "2026-09-25T18:19:43",
+    "completed_at": ""
+  },
+  {
     "id": "5c1ac65537114960a51685b0abdf4683",
     "title": "TAREFAS DIÁRIAS",
     "description": "",
