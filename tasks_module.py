@@ -145,6 +145,50 @@ def _priority_rank(priority):
     return {"Alta": 0, "Média": 1, "Baixa": 2}.get(priority, 9)
 
 
+def _build_checklist(text, existing=None):
+    lines = [
+        line.strip()
+        for line in str(text or "").splitlines()
+        if line.strip()
+    ]
+
+    existing = existing or []
+    existing_by_text = {}
+    for item in existing:
+        if isinstance(item, dict):
+            key = str(item.get("text", "")).strip().casefold()
+            if key:
+                existing_by_text.setdefault(key, []).append(item)
+
+    checklist = []
+    for line in lines:
+        key = line.casefold()
+        preserved = None
+        if existing_by_text.get(key):
+            preserved = existing_by_text[key].pop(0)
+
+        checklist.append(
+            {
+                "id": (
+                    preserved.get("id")
+                    if preserved and preserved.get("id")
+                    else uuid.uuid4().hex
+                ),
+                "text": line,
+                "done": bool(preserved.get("done", False)) if preserved else False,
+            }
+        )
+    return checklist
+
+
+def _checklist_text(task):
+    return "\n".join(
+        str(item.get("text", "")).strip()
+        for item in task.get("checklist", [])
+        if isinstance(item, dict) and str(item.get("text", "")).strip()
+    )
+
+
 def _task_status_label(task):
     due = _parse_date(task.get("due_date"))
     today = date.today()
@@ -205,6 +249,17 @@ def render_tasks():
                 "Descrição / observação",
                 placeholder="Ex.: conferir pendências antes de fechar o pedido.",
             )
+            checklist_text = st.text_area(
+                "Checklist (opcional)",
+                placeholder=(
+                    "Digite um item por linha.\n"
+                    "Ex.:\n"
+                    "Conferir pendências\n"
+                    "Gerar pedido\n"
+                    "Enviar ao fornecedor"
+                ),
+                help="Cada linha vira um item marcável dentro da tarefa.",
+            )
             f1, f2, f3 = st.columns(3)
             due_date = f1.date_input("Prazo", value=today)
             priority = f2.selectbox("Prioridade", PRIORITIES)
@@ -225,6 +280,7 @@ def render_tasks():
                     "priority": priority,
                     "category": category,
                     "status": status,
+                    "checklist": _build_checklist(checklist_text),
                     "created_at": now,
                     "completed_at": now if status == "Concluída" else "",
                 }
@@ -326,6 +382,46 @@ def render_tasks():
                 if task.get("description"):
                     st.write(task["description"])
 
+                checklist = [
+                    item
+                    for item in task.get("checklist", [])
+                    if isinstance(item, dict) and item.get("text")
+                ]
+                if checklist:
+                    completed_checklist = sum(
+                        1 for item in checklist if item.get("done")
+                    )
+                    st.markdown(
+                        f"**☑️ Checklist {completed_checklist}/{len(checklist)}**"
+                    )
+                    progress_value = (
+                        completed_checklist / len(checklist)
+                        if checklist
+                        else 0
+                    )
+                    st.progress(progress_value)
+
+                    checklist_changed = False
+                    for checklist_item in checklist:
+                        checklist_id = checklist_item.get("id") or uuid.uuid4().hex
+                        checklist_item["id"] = checklist_id
+                        checked = st.checkbox(
+                            checklist_item.get("text", ""),
+                            value=bool(checklist_item.get("done", False)),
+                            key=f"check_{task['id']}_{checklist_id}",
+                        )
+                        if checked != bool(checklist_item.get("done", False)):
+                            checklist_item["done"] = checked
+                            checklist_changed = True
+
+                    if checklist_changed:
+                        for item in tasks:
+                            if item["id"] == task["id"]:
+                                item["checklist"] = checklist
+                                break
+                        _persist(tasks, "Checklist atualizado e salvo.")
+                        st.rerun()
+
                 a1, a2, a3, a4 = st.columns([1, 1, 1, 1])
                 task_id = task["id"]
 
@@ -380,6 +476,14 @@ def render_tasks():
                             "Observação",
                             value=task.get("description", ""),
                         )
+                        new_checklist_text = st.text_area(
+                            "Checklist (um item por linha)",
+                            value=_checklist_text(task),
+                            help=(
+                                "Adicione, remova ou altere os itens. "
+                                "Itens já marcados mantêm o status quando o texto permanece igual."
+                            ),
+                        )
                         e1, e2, e3 = st.columns(3)
                         new_due = e1.date_input(
                             "Prazo",
@@ -418,6 +522,10 @@ def render_tasks():
                                 item["priority"] = new_priority
                                 item["category"] = new_category
                                 item["status"] = new_status
+                                item["checklist"] = _build_checklist(
+                                    new_checklist_text,
+                                    existing=item.get("checklist", []),
+                                )
                                 item["completed_at"] = (
                                     datetime.now().isoformat(timespec="seconds")
                                     if new_status == "Concluída"
@@ -438,6 +546,14 @@ def render_tasks():
                     "Prioridade": task.get("priority", ""),
                     "Categoria": task.get("category", ""),
                     "Status": task.get("status", ""),
+                    "Checklist": " | ".join(
+                        (
+                            ("[x] " if item.get("done") else "[ ] ")
+                            + str(item.get("text", ""))
+                        )
+                        for item in task.get("checklist", [])
+                        if isinstance(item, dict) and item.get("text")
+                    ),
                     "Situação": _task_status_label(task),
                     "Criada em": task.get("created_at", ""),
                     "Concluída em": task.get("completed_at", ""),
