@@ -6,10 +6,10 @@
     "due_date": "2026-09-25",
     "priority": "Alta",
     "category": "Compras",
-    "status": "Pendente",
+    "status": "Concluída",
     "checklist": [],
     "created_at": "2026-09-25T18:19:43",
-    "completed_at": ""
+    "completed_at": "2026-09-28T19:38:43"
   },
   {
     "id": "5c1ac65537114960a51685b0abdf4683",
