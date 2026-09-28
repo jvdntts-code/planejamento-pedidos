@@ -11,6 +11,7 @@ from line_analysis_v2 import render_analise_linha
 from pendencias_module import render_pendencias
 from orders_module import render_gestao_pedidos
 from tasks_module import render_tasks
+from purchase_goal_module import render_purchase_goal
 
 st.set_page_config(page_title="NEXO | by JVN", page_icon="◆", layout="wide")
 
@@ -78,6 +79,7 @@ pagina = st.sidebar.radio(
     [
         "🏠 Início",
         "📦 Planejamento de Pedido",
+        "🎯 Meta de Compra",
         "📊 Análise de Linha",
         "🔎 Pendências",
         "🧾 Gestão de Pedidos",
@@ -123,6 +125,10 @@ def render_em_construcao(titulo, descricao):
 
 if pagina == "🏠 Início":
     render_inicio()
+    st.stop()
+
+if pagina == "🎯 Meta de Compra":
+    render_purchase_goal()
     st.stop()
 
 if pagina == "📊 Análise de Linha":
