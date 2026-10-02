@@ -12,7 +12,7 @@ from pendencias_module import render_pendencias
 from orders_module import render_gestao_pedidos
 from tasks_module import render_tasks
 from purchase_goal_module import render_purchase_goal
-from auth_module import require_login
+from auth_module import require_login, is_legacy_owner
 
 st.set_page_config(page_title="NEXO | by JVN", page_icon="◆", layout="wide")
 
@@ -96,17 +96,22 @@ st.sidebar.markdown(
 )
 
 st.sidebar.markdown("### Módulos")
+
+IS_ADMIN = is_legacy_owner()
+MENU_ITEMS = [
+    "Início",
+    "Planejamento de Pedido",
+    "Análise de Linha",
+    "Gestão de Pedidos",
+    "Minhas Tarefas",
+]
+if IS_ADMIN:
+    MENU_ITEMS.insert(2, "Meta de Compra")
+    MENU_ITEMS.insert(4, "Pendências")
+
 pagina = st.sidebar.radio(
     "Escolha a área",
-    [
-        "Início",
-        "Planejamento de Pedido",
-        "Meta de Compra",
-        "Análise de Linha",
-        "Pendências",
-        "Gestão de Pedidos",
-        "Minhas Tarefas",
-    ],
+    MENU_ITEMS,
     label_visibility="collapsed",
 )
 
@@ -150,6 +155,9 @@ if pagina == "Início":
     st.stop()
 
 if pagina == "Meta de Compra":
+    if not IS_ADMIN:
+        st.error("Acesso restrito.")
+        st.stop()
     render_purchase_goal()
     st.stop()
 
@@ -158,6 +166,9 @@ if pagina == "Análise de Linha":
     st.stop()
 
 if pagina == "Pendências":
+    if not IS_ADMIN:
+        st.error("Acesso restrito.")
+        st.stop()
     render_pendencias()
     st.stop()
 
