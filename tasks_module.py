@@ -12,7 +12,7 @@ import streamlit as st
 from auth_module import current_username, is_legacy_owner, user_storage_prefix
 
 
-LEGACY_TASKS_FILE = "personal_tasks.json"
+LEGACY_TASKS_FILE = "legacy/personal_tasks.json"
 DEFAULT_GITHUB_REPO = "jvdntts-code/planejamento-pedidos"
 DEFAULT_GITHUB_BRANCH = "main"
 
@@ -50,8 +50,18 @@ def _settings():
 
 
 def _legacy_settings():
-    repo = str(_secret("GITHUB_REPO", DEFAULT_GITHUB_REPO))
-    branch = str(_secret("GITHUB_BRANCH", DEFAULT_GITHUB_BRANCH))
+    repo = str(
+        _secret(
+            "GITHUB_DATA_REPO",
+            _secret("GITHUB_REPO", DEFAULT_GITHUB_REPO),
+        )
+    )
+    branch = str(
+        _secret(
+            "GITHUB_DATA_BRANCH",
+            _secret("GITHUB_BRANCH", DEFAULT_GITHUB_BRANCH),
+        )
+    )
     token = str(_secret("GITHUB_TOKEN", ""))
     return repo, branch, token
 
