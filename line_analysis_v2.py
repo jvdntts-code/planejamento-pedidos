@@ -1915,7 +1915,24 @@ def render_analise_linha():
         "e produtos parados — direto do relatório bruto do sistema."
     )
 
-    st.markdown("### Importação do relatório")
+    st.markdown("### Importação dos relatórios")
+
+    st.caption(
+        "Acesse os relatórios no Metabase, faça o download e importe cada arquivo no campo correspondente."
+    )
+    link1, link2 = st.columns(2)
+    with link1:
+        st.link_button(
+            "Abrir Lista de Produtos por Marca",
+            "http://metabase.samarc.com.br/question/510-lista-de-produtos-por-marca?marca=",
+            use_container_width=True,
+        )
+    with link2:
+        st.link_button(
+            "Abrir Vendas Produtos",
+            "http://metabase.samarc.com.br/question/1540-vendas-produtos?Data2=&Periodo=&Descricao=&similar=&Grupo=&Data1=&Total_Vendido=&Descricao_Precisa=&Codigo_interno=&Marca=&Aplicacao=",
+            use_container_width=True,
+        )
 
     col_import, col_modelo = st.columns([2.2, 1])
     with col_import:
