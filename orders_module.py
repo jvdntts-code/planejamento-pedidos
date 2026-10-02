@@ -814,6 +814,45 @@ def _add_order_attachments(uploaded_files):
     return added, errors
 
 
+def _remove_all_orders(library):
+    pdf_paths = [
+        str(order_data.get("pdf_path") or "").strip()
+        for order_data in library.values()
+        if str(order_data.get("pdf_path") or "").strip()
+    ]
+
+    ready, _ = _data_repo_status()
+
+    if ready:
+        ok, error = _save_persistent_index({})
+        if not ok:
+            return False, error or "Não foi possível limpar o histórico salvo."
+
+        delete_errors = []
+        for pdf_path in pdf_paths:
+            ok, error = _github_delete_path(pdf_path)
+            if not ok and error:
+                delete_errors.append(error)
+
+        library.clear()
+        st.session_state["gestao_pedidos_anexos"] = library
+        st.session_state["gestao_pedido_selecionado"] = None
+        st.session_state["gestao_fornecedor_selecionado"] = None
+
+        if delete_errors:
+            return True, (
+                "Todos os pedidos foram removidos do histórico, mas alguns PDFs "
+                "antigos não puderam ser excluídos do repositório."
+            )
+        return True, None
+
+    library.clear()
+    st.session_state["gestao_pedidos_anexos"] = library
+    st.session_state["gestao_pedido_selecionado"] = None
+    st.session_state["gestao_fornecedor_selecionado"] = None
+    return True, None
+
+
 def _remove_order(library, order_id):
     order_data = library.get(order_id)
     if not order_data:
@@ -1495,6 +1534,36 @@ def render_gestao_pedidos():
                     "Use um repositório PRIVADO separado para os PDFs e dados dos pedidos. "
                     "Depois configure GITHUB_DATA_REPO nos Secrets do Streamlit."
                 )
+
+        if library:
+            with st.expander("Remover todos os pedidos", expanded=False):
+                st.warning(
+                    "Esta ação apaga todo o histórico de pedidos e os PDFs salvos "
+                    "deste usuário. Os intervalos de compra por fornecedor serão mantidos."
+                )
+                confirm_remove_all = st.checkbox(
+                    "Confirmo que quero remover todos os pedidos",
+                    key="gestao_confirmar_remover_todos",
+                )
+                if st.button(
+                    "Remover todos os pedidos",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=not confirm_remove_all,
+                    key="gestao_remover_todos_pedidos",
+                ):
+                    ok, message = _remove_all_orders(library)
+                    if ok:
+                        st.session_state["gestao_upload_flash"] = (
+                            message or "Todos os pedidos foram removidos."
+                        )
+                        st.session_state.pop(
+                            "gestao_confirmar_remover_todos",
+                            None,
+                        )
+                        st.rerun()
+                    else:
+                        st.error(message or "Não foi possível remover todos os pedidos.")
 
     load_error = st.session_state.get("gestao_pedidos_load_error", "")
     if load_error:
