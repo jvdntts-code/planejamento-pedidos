@@ -916,14 +916,14 @@ def _purchase_alert(order_date, months):
     delta = (next_date - today).days
 
     if delta < 0:
-        return next_date, f"🔴 Compra atrasada há {abs(delta)} dia(s)", "error"
+        return next_date, f"Compra atrasada há {abs(delta)} dia(s)", "error"
     if delta == 0:
-        return next_date, "🔴 Compra prevista para hoje", "error"
+        return next_date, "Compra prevista para hoje", "error"
     if next_date.year == today.year and next_date.month == today.month:
-        return next_date, f"🟠 Compra este mês • faltam {delta} dia(s)", "warning"
+        return next_date, f"Compra este mês • faltam {delta} dia(s)", "warning"
     if delta <= 30:
-        return next_date, f"🟠 Faltam {delta} dia(s)", "warning"
-    return next_date, f"🟢 Faltam {delta} dia(s)", "success"
+        return next_date, f"Faltam {delta} dia(s)", "warning"
+    return next_date, f"Faltam {delta} dia(s)", "success"
 
 
 def _render_comparison(library, current_order):
@@ -992,7 +992,7 @@ def _render_supplier_history(library, supplier_key, ciclo_meses):
             st.session_state["gestao_fornecedor_selecionado"] = None
             st.rerun()
     with top_right:
-        st.markdown(f"## 🏭 {supplier_name}")
+        st.markdown(f"## {supplier_name}")
 
     total_value = sum(
         float(order.get("header", {}).get("Valor Pedido", 0) or 0)
@@ -1150,7 +1150,7 @@ def _render_order_detail(order_data, ciclo_meses, library):
             st.rerun()
 
     with top_right:
-        st.caption(f"📎 Anexo: {order_data['filename']}")
+        st.caption(f"Anexo: {order_data['filename']}")
 
     st.success(
         f"Pedido reconhecido: {header.get('Pedido') or 'sem número'} | "
@@ -1201,14 +1201,14 @@ def _render_order_detail(order_data, ciclo_meses, library):
     pdf_total = float(header.get("Valor Pedido", 0) or 0)
     item_total = float(header.get("Valor Calculado Itens", 0) or 0)
     if pdf_total and abs(pdf_total - item_total) <= 0.02:
-        st.success("✅ O valor somado dos itens confere com o valor total do PDF.")
+        st.success("O valor somado dos itens confere com o valor total do PDF.")
     elif pdf_total:
         st.warning(
-            "⚠️ O valor somado dos itens não confere com o total informado no PDF. "
+             "O valor somado dos itens não confere com o total informado no PDF. "
             f"Diferença: {money_br(item_total - pdf_total)}."
         )
 
-    with st.expander("🔄 Comparar com o pedido anterior", expanded=False):
+    with st.expander("Comparar com o pedido anterior", expanded=False):
         _render_comparison(library, order_data)
 
     st.markdown("### Itens do pedido")
@@ -1271,7 +1271,7 @@ def _render_order_detail(order_data, ciclo_meses, library):
     ready, _ = _data_repo_status()
     if ready:
         if st.button(
-            "💾 Salvar acompanhamento permanentemente",
+            "Salvar acompanhamento",
             key=f"save_receipt_{order_data['id']}",
         ):
             ok, error = _save_persistent_index(library)
@@ -1301,7 +1301,7 @@ def _render_order_detail(order_data, ciclo_meses, library):
         )
 
     st.download_button(
-        "📥 Exportar pedido para Excel",
+        "Exportar pedido para Excel",
         data=export_order_xlsx(header, managed),
         file_name=f"NEXO_pedido_{header.get('Pedido') or 'importado'}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1310,11 +1310,11 @@ def _render_order_detail(order_data, ciclo_meses, library):
         key=f"export_order_xlsx_{order_data['id']}",
     )
 
-    with st.expander("📄 Ver PDF anexado"):
+    with st.expander("Ver PDF anexado"):
         pdf_bytes, pdf_error = _get_order_pdf_bytes(order_data)
         if pdf_bytes:
             st.download_button(
-                "📎 Baixar PDF original",
+                "Baixar PDF original",
                 data=pdf_bytes,
                 file_name=order_data["filename"],
                 mime="application/pdf",
@@ -1325,7 +1325,7 @@ def _render_order_detail(order_data, ciclo_meses, library):
 
     extracted_text = order_data.get("extracted_text", "")
     if extracted_text:
-        with st.expander("🔧 Diagnóstico da leitura do PDF"):
+        with st.expander("Diagnóstico da leitura do PDF"):
             st.caption(
                 "Use esta área apenas se algum dado não for reconhecido corretamente."
             )
@@ -1339,7 +1339,7 @@ def _render_order_detail(order_data, ciclo_meses, library):
 
 
 def render_gestao_pedidos():
-    st.title("🧾 Gestão de Pedidos")
+    st.title("Gestão de Pedidos")
     st.caption(
         "Centralize seus pedidos em PDF, acompanhe o histórico e compare automaticamente as compras."
     )
@@ -1367,9 +1367,9 @@ def render_gestao_pedidos():
             f"{'mês' if int(ciclo_meses) == 1 else 'meses'} após cada pedido."
         )
         if persistence_ready:
-            st.success("☁️ Pedidos permanentes habilitados")
+            st.success("Pedidos permanentes habilitados")
         else:
-            st.warning("⚠️ Pedidos ainda ficam somente na sessão")
+            st.warning("Pedidos ainda ficam somente na sessão")
             with st.expander("Como ativar o salvamento permanente"):
                 st.caption(
                     "Use um repositório PRIVADO separado para os PDFs e dados dos pedidos. "
@@ -1402,7 +1402,7 @@ def render_gestao_pedidos():
     for error in upload_errors:
         st.error(error)
 
-    with st.expander("➕ Anexar pedido(s) em PDF", expanded=not bool(library)):
+    with st.expander("Anexar pedido(s) em PDF", expanded=not bool(library)):
         st.caption(
             "Você pode selecionar vários PDFs de uma vez. Cada arquivo será transformado em um pedido."
         )
@@ -1534,7 +1534,7 @@ def render_gestao_pedidos():
         itens_mes = sum(rec["itens"] for rec in pedidos_mes)
 
         titulo_expander = (
-            f"📅 {grupo['titulo']}  •  "
+            f"{grupo['titulo']}  •  "
             f"{qtd_mes} {'pedido' if qtd_mes == 1 else 'pedidos'}  •  "
             f"{money_br(valor_mes)}"
         )
@@ -1554,9 +1554,9 @@ def render_gestao_pedidos():
                     col_main, col_meta, col_actions = st.columns([3.2, 2, 1.3])
 
                     with col_main:
-                        st.markdown(f"### 📎 Pedido {rec['pedido'] or 'sem número'}")
+                        st.markdown(f"### Pedido {rec['pedido'] or 'sem número'}")
                         if st.button(
-                            f"🏭 {rec['fornecedor'] or 'Fornecedor não identificado'}",
+                            f"{rec['fornecedor'] or 'Fornecedor não identificado'}",
                             key=f"historico_fornecedor_{rec['id']}",
                         ):
                             st.session_state["gestao_fornecedor_selecionado"] = rec["fornecedor_key"]
@@ -1640,11 +1640,11 @@ def render_gestao_pedidos():
 
     if persistence_ready:
         st.caption(
-            "☁️ PDFs e histórico estão sendo guardados no repositório privado de dados."
+            "PDFs e histórico estão sendo guardados no repositório privado de dados."
         )
     else:
         st.caption(
-            "⚠️ Nesta configuração os pedidos ficam somente durante a sessão. "
+             "Nesta configuração os pedidos ficam somente durante a sessão. "
             "O NEXO não grava PDFs no repositório público do aplicativo."
         )
 
