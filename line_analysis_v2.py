@@ -1806,7 +1806,7 @@ def _criteria_errors(criteria):
 
 
 def render_analise_linha():
-    st.title("📊 Análise Gerencial de Linha")
+    st.title("Análise Gerencial de Linha")
     st.caption(
         "Painel executivo com faturamento, estoque, Curva ABC, cobertura, excesso "
         "e produtos parados — direto do relatório bruto do sistema."
@@ -1826,7 +1826,7 @@ def render_analise_linha():
     with col_modelo:
         st.markdown("**Primeira vez usando?**")
         st.download_button(
-            "📥 Baixar modelo de importação",
+            "Baixar modelo de importação",
             data=line_import_template_bytes(),
             file_name="NEXO_modelo_importacao_analise_linha.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1834,7 +1834,7 @@ def render_analise_linha():
             key="download_modelo_analise_linha",
         )
 
-    with st.expander("📘 Como preparar o arquivo para a Análise de Linha"):
+    with st.expander("Como preparar o arquivo para a Análise de Linha"):
         st.markdown(
             """
             **Para evitar erros na importação:**
@@ -1943,7 +1943,7 @@ def render_analise_linha():
 
     with st.sidebar:
         st.markdown("---")
-        st.subheader("⚙️ Critérios da análise")
+        st.subheader("Critérios da análise")
         st.caption("Configure aqui a Curva ABC e os dias de cobertura. Alterações válidas recalculam a análise automaticamente.")
 
         st.markdown("**Curva ABC**")
@@ -2072,7 +2072,7 @@ def render_analise_linha():
             st.caption("Acima do limite de ALTO = EXCESSO.")
 
         st.button(
-            "💾 Salvar como padrão permanente",
+            "Salvar como padrão permanente",
             use_container_width=True,
             on_click=save_criteria,
         )
@@ -2084,7 +2084,7 @@ def render_analise_linha():
 
         _, _, github_token = _github_persistence_settings()
         if github_token:
-            st.caption("✅ Salvamento permanente habilitado via GitHub.")
+            st.caption("Salvamento permanente habilitado.")
         else:
             st.caption("ℹ️ Para persistir após reboot, configure GITHUB_TOKEN nos Secrets do Streamlit.")
 
@@ -2099,7 +2099,7 @@ def render_analise_linha():
     period_days = int(criteria["abc_period"])
 
     st.info(
-        f"⚙️ **Critérios no menu lateral** — Período único da análise: "
+        f"**Critérios no menu lateral** — Período único da análise: "
         f"**{period_days} dias** • A até **{criteria['abc_a']:.0f}%** • "
         f"B até **{criteria['abc_b']:.0f}%**. O mesmo período define Curva ABC, cobertura e status."
     )
@@ -2611,7 +2611,7 @@ def render_analise_linha():
     )
 
     st.download_button(
-        "📊 Baixar relatório gerencial formatado (.xlsx)",
+        "Baixar relatório gerencial formatado (.xlsx)",
         data=export,
         file_name=f"analise_gerencial_linha_{period_days}d.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
