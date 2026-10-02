@@ -494,12 +494,6 @@ def parse_pend(df):
 with st.sidebar:
     st.header('Configuração do pedido')
 
-    considerar_necessidade = st.checkbox(
-        'Considerar necessidade das filiais',
-        value=True,
-        help='Quando marcado, soma ao pedido a necessidade calculada das filiais consideradas.'
-    )
-
     bloquear_filial_abastecida = st.checkbox(
         'Não pedir para filial abastecida pelo mínimo cadastrado',
         value=True,
@@ -587,11 +581,9 @@ with st.sidebar:
 
     st.markdown('---')
     st.markdown('**Regra do pedido final**')
-    partes_regra = []
-    if considerar_necessidade:
-        partes_regra.append('Necessidade das filiais')
-        if bloquear_filial_abastecida:
-            partes_regra.append('bloqueio de filiais já abastecidas pelo mínimo cadastrado')
+    partes_regra = ['Necessidade das filiais']
+    if bloquear_filial_abastecida:
+        partes_regra.append('bloqueio de filiais já abastecidas pelo mínimo cadastrado')
     if leadtime_dias > 0:
         partes_regra.append(f'Lead Time ({leadtime_dias} dias)')
     regra = ' + '.join(partes_regra) if partes_regra else '0'
@@ -864,7 +856,7 @@ for _, r in base.iterrows():
     media_diaria_grupo = grupo_25 / 90.0
     qtd_leadtime = media_diaria_grupo * float(leadtime_dias)
 
-    necessidade_aplicada = necessidade_total if considerar_necessidade else 0.0
+    necessidade_aplicada = necessidade_total
     estoque_abatido = estoque_m20 if abater_estoque_m20 else 0.0
 
     # Primeiro calcula a necessidade antes da pendência. Depois abate somente
@@ -925,7 +917,6 @@ pedido = final[final['QTD FINAL COMPRA'] > 0][['Codigo','Referencia','Descricao'
 
 configuracao = pd.DataFrame({
     'Parametro': [
-        'Considerar necessidade das filiais',
         'Não pedir para filial abastecida pelo mínimo cadastrado',
         'Desconsiderar VCA (M25 a M29)',
         'Desconsiderar SSA (M14 a M19)',
@@ -940,7 +931,6 @@ configuracao = pd.DataFrame({
         'Percentual base do mínimo M20'
     ],
     'Valor': [
-        'Sim' if considerar_necessidade else 'Não',
         'Sim' if bloquear_filial_abastecida else 'Não',
         'Sim' if excluir_vca else 'Não',
         'Sim' if excluir_ssa else 'Não',
