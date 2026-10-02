@@ -322,7 +322,7 @@ def _allocate_goal(data, mode, target, order_rule):
 
 
 def render_purchase_goal():
-    st.title("🎯 Meta de Compra")
+    st.title("Meta de Compra")
     st.caption(
         "Simule negociações extraordinárias por quantidade de peças ou por valor, "
         "respeitando estoque atual, pendências e limites de cobertura por curva."
