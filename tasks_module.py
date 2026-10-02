@@ -316,7 +316,7 @@ def render_tasks():
                 placeholder="Ex.: conferir pendências antes de fechar o pedido.",
             )
             checklist_text = st.text_area(
-                "Lista de verificação (opcional)",
+                "Checklist (opcional)",
                 placeholder=(
                     "Digite um item por linha.\n"
                     "Ex.:\n"
@@ -330,7 +330,7 @@ def render_tasks():
             due_date = f1.date_input("Prazo", value=today)
             priority = f2.selectbox("Prioridade", PRIORITIES)
             category = f3.selectbox("Categoria", CATEGORIES)
-            status = st.selectbox("Status", STATUSES, index=0)
+            status = st.selectbox("Situação", STATUSES, index=0)
             submitted = st.form_submit_button("Adicionar tarefa", type="primary")
 
         if submitted:
@@ -442,7 +442,7 @@ def render_tasks():
                     meta.append(f"Prazo {due.strftime('%d/%m/%Y')}")
                 meta.append(f"Prioridade {task.get('priority', 'Média')}")
                 meta.append(f"Categoria {task.get('category', 'Outro')}")
-                meta.append(f"Status {task.get('status', 'Pendente')}")
+                meta.append(f"Situação {task.get('status', 'Pendente')}")
                 st.caption("  •  ".join(meta))
 
                 if task.get("description"):
@@ -458,7 +458,7 @@ def render_tasks():
                         1 for item in checklist if item.get("done")
                     )
                     st.markdown(
-                        f"**Lista de verificação {completed_checklist}/{len(checklist)}**"
+                        f"**Checklist {completed_checklist}/{len(checklist)}**"
                     )
                     progress_value = (
                         completed_checklist / len(checklist)
@@ -485,7 +485,7 @@ def render_tasks():
                             if item["id"] == task["id"]:
                                 item["checklist"] = checklist
                                 break
-                        _persist(tasks, "Lista de verificação atualizada e salva.")
+                        _persist(tasks, "Checklist atualizado e salvo.")
                         st.rerun()
 
                 a1, a2, a3, a4 = st.columns([1, 1, 1, 1])
@@ -505,7 +505,7 @@ def render_tasks():
                             if item["id"] == task_id:
                                 item["status"] = "Em andamento"
                                 item["completed_at"] = ""
-                        _persist(tasks, "Status atualizado e salvo.")
+                        _persist(tasks, "Situação atualizada e salva.")
                         st.rerun()
                 else:
                     if a1.button("↩️ Reabrir", key=f"reopen_{task_id}", use_container_width=True):
@@ -543,11 +543,11 @@ def render_tasks():
                             value=task.get("description", ""),
                         )
                         new_checklist_text = st.text_area(
-                            "Lista de verificação (um item por linha)",
+                            "Checklist (um item por linha)",
                             value=_checklist_text(task),
                             help=(
                                 "Adicione, remova ou altere os itens. "
-                                "Itens já marcados mantêm o status quando o texto permanece igual."
+                                "Itens já marcados mantêm a situação quando o texto permanece igual."
                             ),
                         )
                         e1, e2, e3 = st.columns(3)
@@ -612,7 +612,7 @@ def render_tasks():
                     "Prioridade": task.get("priority", ""),
                     "Categoria": task.get("category", ""),
                     "Status": task.get("status", ""),
-                    "Lista de verificação": " | ".join(
+                    "Checklist": " | ".join(
                         (
                             ("[x] " if item.get("done") else "[ ] ")
                             + str(item.get("text", ""))
