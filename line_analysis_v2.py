@@ -897,7 +897,7 @@ def _format_sheet(
     decimal_headers = set(decimal_headers or [])
 
     ws.sheet_view.showGridLines = False
-    ws.freeze_panes = f"A{header_row + 1}"
+    ws.freeze_panes = None
     _style_header(ws, header_row)
 
     headers = {
@@ -1419,7 +1419,7 @@ def formatted_xlsx_bytes(
         wb = writer.book
         ws = wb.create_sheet("DASHBOARD", 0)
         ws.sheet_view.showGridLines = False
-        ws.freeze_panes = "A4"
+        ws.freeze_panes = None
         ws.page_setup.orientation = "landscape"
         ws.page_setup.fitToWidth = 1
         ws.sheet_properties.pageSetUpPr.fitToPage = True
@@ -1627,7 +1627,7 @@ def formatted_xlsx_bytes(
             ws.cell(row, 1).alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
             ws.cell(row, 5).alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
 
-        ws.freeze_panes = "A10"
+        ws.freeze_panes = None
 
         # Demais abas.
         for sheet_name in ("RESUMO LINHAS", "PRODUTOS", "ALTO EXCESSO", "ESTOQUE PARADO"):
@@ -1714,14 +1714,14 @@ def formatted_xlsx_bytes(
 
         raw_ws = wb["DADOS BRUTOS"]
         raw_ws.sheet_view.showGridLines = False
-        raw_ws.freeze_panes = "A2"
+        raw_ws.freeze_panes = None
         _style_header(raw_ws, 1)
         _auto_width(raw_ws)
         raw_ws.auto_filter.ref = raw_ws.dimensions
 
         crit_ws = wb["CRITERIOS"]
         crit_ws.sheet_view.showGridLines = False
-        crit_ws.freeze_panes = "A2"
+        crit_ws.freeze_panes = None
         _style_header(crit_ws, 1)
         _auto_width(crit_ws, min_width=18, max_width=38)
         crit_ws.column_dimensions["A"].width = 34
