@@ -72,7 +72,7 @@ STATUS_COLOR_RANGE = [
 ABC_COLOR_DOMAIN = ["A", "B", "C"]
 ABC_COLOR_RANGE = ["#16A34A", "#2563EB", "#94A3B8"]
 
-LEGACY_PERSISTENT_CRITERIA_FILE = "saved_line_criteria.json"
+LEGACY_PERSISTENT_CRITERIA_FILE = "legacy/saved_line_criteria.json"
 DEFAULT_GITHUB_REPO = "jvdntts-code/planejamento-pedidos"
 
 
@@ -1635,8 +1635,14 @@ def _github_persistence_settings():
 
 
 def _legacy_github_settings():
-    repo = _get_secret("GITHUB_REPO", DEFAULT_GITHUB_REPO)
-    branch = _get_secret("GITHUB_BRANCH", DEFAULT_GITHUB_BRANCH)
+    repo = _get_secret(
+        "GITHUB_DATA_REPO",
+        _get_secret("GITHUB_REPO", DEFAULT_GITHUB_REPO),
+    )
+    branch = _get_secret(
+        "GITHUB_DATA_BRANCH",
+        _get_secret("GITHUB_BRANCH", DEFAULT_GITHUB_BRANCH),
+    )
     token = _get_secret("GITHUB_TOKEN", "")
     return str(repo), str(branch), str(token)
 
