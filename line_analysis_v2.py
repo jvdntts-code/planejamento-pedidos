@@ -1920,10 +1920,16 @@ def render_analise_linha():
     col_import, col_modelo = st.columns([2.2, 1])
     with col_import:
         uploaded = st.file_uploader(
-            "Importe o relatório bruto por marca",
+            "Lista de Produtos por Marca",
             type=["xlsx", "xls", "csv"],
             key="linha_raw_v2",
-            help="Use o relatório no formato esperado pelo NEXO. Se tiver dúvida, baixe o modelo ao lado.",
+            help="Importe o relatório bruto da Lista de Produtos por Marca.",
+        )
+        sales_price_file = st.file_uploader(
+            "Vendas Produtos (opcional, para preço de venda)",
+            type=["xlsx", "xls", "csv"],
+            key="linha_sales_price_v2",
+            help="Quando importado, o NEXO cruza pelo código do produto e usa o preço de venda deste arquivo nas análises financeiras.",
         )
 
     with col_modelo:
@@ -1946,7 +1952,8 @@ def render_analise_linha():
             - mantenha os nomes dos cabeçalhos;
             - coloque **um produto por linha**;
             - informe código, descrição, referência, código da linha e nome da linha;
-            - estoque, mínimo, vendas e preço devem ser valores numéricos;
+            - estoque, mínimo e vendas devem ser valores numéricos;
+            - mantenha o preço de custo da Lista por Marca; para a análise financeira, você pode importar também o arquivo **Vendas Produtos**;
             - mantenha as vendas acumuladas de **30, 60, 90 e 360/365 dias**;
             - não coloque totais ou subtotais no meio da base;
             - consulte as abas **INSTRUCOES**, **DICIONARIO** e **EXEMPLO** dentro do arquivo modelo.
@@ -1965,6 +1972,29 @@ def render_analise_linha():
     try:
         raw = read_file(uploaded)
         base, long_days = standardize_line_report(raw)
+
+        if sales_price_file is not None:
+            sales_raw = read_file(sales_price_file)
+            base, price_match_count, price_missing_count = _apply_sales_prices(
+                base,
+                sales_raw,
+            )
+            st.success(
+                f"Preço de venda atualizado pelo Vendas Produtos em "
+                f"{price_match_count:,} produto(s).".replace(",", ".")
+            )
+            if price_missing_count:
+                st.warning(
+                    f"{price_missing_count:,} produto(s) não foram encontrados no Vendas Produtos "
+                    "e mantiveram o preço disponível na Lista por Marca."
+                    .replace(",", ".")
+                )
+        elif (base["preco_venda_origem"] == "Preço de custo usado provisoriamente").any():
+            st.warning(
+                "A Lista por Marca não possui preço de venda identificado. "
+                "Importe o arquivo Vendas Produtos para que Curva ABC, faturamento "
+                "e valor de estoque usem preço de venda."
+            )
     except Exception as exc:
         st.error(str(exc))
         return
