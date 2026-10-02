@@ -500,6 +500,16 @@ with st.sidebar:
         help='Quando marcado, soma ao pedido a necessidade calculada das filiais consideradas.'
     )
 
+    bloquear_filial_abastecida = st.checkbox(
+        'Não pedir para filial abastecida pelo mínimo cadastrado',
+        value=True,
+        help=(
+            'Quando marcado, a filial não gera necessidade direta de compra se o estoque atual '
+            'for igual ou superior ao mínimo cadastrado pela própria filial, mesmo que o mínimo '
+            'validado pelo NEXO seja maior.'
+        )
+    )
+
     with st.expander('Filiais a desconsiderar', expanded=False):
         st.markdown('**Regiões**')
         excluir_vca = st.checkbox(
@@ -580,6 +590,8 @@ with st.sidebar:
     partes_regra = []
     if considerar_necessidade:
         partes_regra.append('Necessidade das filiais')
+        if bloquear_filial_abastecida:
+            partes_regra.append('bloqueio de filiais já abastecidas pelo mínimo cadastrado')
     if leadtime_dias > 0:
         partes_regra.append(f'Lead Time ({leadtime_dias} dias)')
     regra = ' + '.join(partes_regra) if partes_regra else '0'
@@ -779,7 +791,19 @@ for _, r in base.iterrows():
 
         min_valid = max(v90, minimo)
         status_min = 'CORRIGIR' if minimo < v90 else 'OK'
-        buy_calculado = float(qtd_comprar([estoque],[min_valid],[v30])[0])
+
+        filial_abastecida_minimo = (
+            bloquear_filial_abastecida
+            and estoque >= minimo
+        )
+        buy_calculado_original = float(
+            qtd_comprar([estoque], [min_valid], [v30])[0]
+        )
+        buy_calculado = (
+            0.0
+            if filial_abastecida_minimo
+            else buy_calculado_original
+        )
 
         filial_excluida = (
             (excluir_vca and b in VCA_BRANCHES)
@@ -807,8 +831,15 @@ for _, r in base.iterrows():
             'Codigo':codigo,'Referencia':r.referencia,'Descricao':r.descricao,'Filial':BRANCH_LABEL[b],
             'Regiao':regiao,
             'Considerada na Necessidade de Compra':'Não' if filial_excluida else 'Sim',
-            'Estoque Atual':estoque,'Minimo Validado':min_valid,'Vendas 30d':v30,
-            'Qtd Comprar Calculada':buy_calculado,'Qtd Comprar Aplicada':buy_aplicado
+            'Estoque Atual':estoque,
+            'Minimo Cadastrado':minimo,
+            'Minimo Validado':min_valid,
+            'Vendas 30d':v30,
+            'Filial Abastecida pelo Minimo Cadastrado':'Sim' if estoque >= minimo else 'Não',
+            'Compra Bloqueada pelo Minimo Cadastrado':'Sim' if filial_abastecida_minimo else 'Não',
+            'Qtd Comprar Antes do Bloqueio':buy_calculado_original,
+            'Qtd Comprar Calculada':buy_calculado,
+            'Qtd Comprar Aplicada':buy_aplicado
         })
 
     vendas90_extras_calculada = 0.0
@@ -895,6 +926,7 @@ pedido = final[final['QTD FINAL COMPRA'] > 0][['Codigo','Referencia','Descricao'
 configuracao = pd.DataFrame({
     'Parametro': [
         'Considerar necessidade das filiais',
+        'Não pedir para filial abastecida pelo mínimo cadastrado',
         'Desconsiderar VCA (M25 a M29)',
         'Desconsiderar SSA (M14 a M19)',
         'Desconsiderar M31',
@@ -909,6 +941,7 @@ configuracao = pd.DataFrame({
     ],
     'Valor': [
         'Sim' if considerar_necessidade else 'Não',
+        'Sim' if bloquear_filial_abastecida else 'Não',
         'Sim' if excluir_vca else 'Não',
         'Sim' if excluir_ssa else 'Não',
         'Sim' if 'M31' in lojas_excluidas_individual else 'Não',
