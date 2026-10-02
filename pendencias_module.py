@@ -309,12 +309,12 @@ def comparison_xlsx_bytes(result, system_base, supplier_base):
 
 
 def render_pendencias():
-    st.title("🔎 Confronto de Pendências")
+    st.title("Confronto de Pendências")
     st.caption(
         "Compare a carteira pendente do seu sistema com a carteira do fornecedor e identifique automaticamente todas as divergências."
     )
 
-    with st.expander("📘 O que o NEXO vai conferir", expanded=False):
+    with st.expander("O que o NEXO vai conferir", expanded=False):
         st.markdown(
             """
             O confronto usa a **REFERÊNCIA** do produto e classifica cada item em quatro situações:
@@ -339,7 +339,7 @@ def render_pendencias():
     with col_model:
         st.markdown("**Primeira vez usando?**")
         st.download_button(
-            "📥 Baixar modelo de pendências",
+            "Baixar modelo de pendências",
             data=pending_template_bytes(),
             file_name="NEXO_modelo_confronto_pendencias.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -414,7 +414,7 @@ def render_pendencias():
     q2.metric("Quantidade total no fornecedor", f"{result['QTD FORNECEDOR'].sum():,.0f}".replace(",", "."))
     q3.metric("Itens OK", f"{ok_count:,}".replace(",", "."))
 
-    tab_div, tab_all, tab_summary = st.tabs(["⚠️ Divergências", "📋 Todos os itens", "📊 Resumo"])
+    tab_div, tab_all, tab_summary = st.tabs(["Divergências", "Todos os itens", "Resumo"])
 
     with tab_div:
         statuses = ["QUANTIDADE DIVERGENTE", "SÓ NO FORNECEDOR", "SÓ NO SISTEMA"]
@@ -477,7 +477,7 @@ def render_pendencias():
 
     st.markdown("### Exportar resultado")
     st.download_button(
-        "📥 Baixar confronto completo em Excel",
+        "Baixar confronto completo em Excel",
         data=comparison_xlsx_bytes(result, system_base, supplier_base),
         file_name="NEXO_confronto_pendencias.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
