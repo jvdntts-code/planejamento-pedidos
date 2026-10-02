@@ -9,7 +9,7 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import streamlit as st
 
@@ -381,12 +381,15 @@ def _reset_password(username, recovery_code, new_password):
 
     admin_code = str(_secret("NEXO_ADMIN_CODE", "")).strip()
     supplied = str(recovery_code or "").strip()
-    admin_ok = bool(admin_code) and hmac.compare_digest(supplied, admin_code)
+    admin_code_ok = bool(admin_code) and hmac.compare_digest(supplied, admin_code)
 
     if user is None:
         legacy_key, legacy_user = _find_legacy_user(_load_legacy_users(), username)
-        if legacy_user is None or not admin_ok:
-            return False, "Não foi possível validar a recuperação desta conta."
+        if legacy_user is None or not admin_code_ok:
+            return False, (
+                "Conta não encontrada ou ainda não migrada. "
+                "Entre uma vez com a senha atual ou procure o administrador."
+            )
 
         recovery_new = _new_recovery_code()
         password_salt, password_hash = _password_hash(new_password)
@@ -415,20 +418,87 @@ def _reset_password(username, recovery_code, new_password):
         str(user.get("recovery_hash", "")),
     )
 
-    if not recovery_ok and not admin_ok:
-        return False, "Código de recuperação inválido."
+    release_until_raw = str(user.get("admin_reset_until", "") or "").strip()
+    admin_release_ok = False
+    if release_until_raw:
+        try:
+            release_until = datetime.fromisoformat(release_until_raw)
+            admin_release_ok = datetime.now() <= release_until
+        except Exception:
+            admin_release_ok = False
+
+    if not recovery_ok and not admin_release_ok and not admin_code_ok:
+        return False, (
+            "Código de recuperação inválido. "
+            "Se você perdeu o código, peça ao administrador para liberar a redefinição."
+        )
 
     password_salt, password_hash = _password_hash(new_password)
+    recovery_new = _new_recovery_code()
+    recovery_salt, recovery_hash = _password_hash(
+        _normalize_recovery_code(recovery_new)
+    )
+
     user["password_salt"] = password_salt
     user["password_hash"] = password_hash
+    user["recovery_salt"] = recovery_salt
+    user["recovery_hash"] = recovery_hash
     user["password_changed_at"] = datetime.now().isoformat(timespec="seconds")
+    user.pop("admin_reset_until", None)
+    user.pop("admin_reset_authorized_at", None)
+    user.pop("admin_reset_authorized_by", None)
     registry[key] = user
 
     ok, save_error = _write_registry(registry, sha=sha)
     if not ok:
         return False, save_error
 
+    st.session_state["nexo_reset_recovery_code"] = recovery_new
     return True, None
+
+
+def _admin_reset_status(user):
+    raw = str(user.get("admin_reset_until", "") or "").strip()
+    if not raw:
+        return False, None
+    try:
+        until = datetime.fromisoformat(raw)
+    except Exception:
+        return False, None
+    return datetime.now() <= until, until
+
+
+def _set_admin_reset(username, enabled):
+    registry, sha, error = _read_registry()
+    if error:
+        return False, error
+
+    key, user = _find_registry_user(registry, username)
+    if user is None:
+        return False, (
+            "Esse usuário ainda não está no cadastro novo. "
+            "Ele precisa entrar uma vez com a senha atual para concluir a migração."
+        )
+
+    if enabled:
+        now = datetime.now()
+        user["admin_reset_authorized_at"] = now.isoformat(timespec="seconds")
+        user["admin_reset_until"] = (
+            now + timedelta(hours=24)
+        ).isoformat(timespec="seconds")
+        user["admin_reset_authorized_by"] = current_username()
+    else:
+        user.pop("admin_reset_authorized_at", None)
+        user.pop("admin_reset_until", None)
+        user.pop("admin_reset_authorized_by", None)
+
+    registry[key] = user
+    ok, save_error = _write_registry(registry, sha=sha)
+    if not ok:
+        return False, save_error
+    return True, None
+
+
 
 
 def is_legacy_owner(username=None):
@@ -450,6 +520,134 @@ def is_legacy_owner(username=None):
         return hmac.compare_digest(user, only_user)
 
     return False
+
+
+def render_user_admin():
+    if not is_legacy_owner():
+        st.error("Acesso restrito ao administrador.")
+        return
+
+    st.title("Usuários")
+    st.caption(
+        "Gerencie contas e libere redefinições de senha. "
+        "A liberação administrativa expira em 24 horas e é consumida após a troca."
+    )
+
+    registry, _, error = _read_registry()
+    if error:
+        st.error(error)
+        return
+
+    legacy_users = _load_legacy_users()
+    rows = []
+    all_names = sorted(
+        set(registry.keys()) | set(legacy_users.keys()),
+        key=lambda value: value.casefold(),
+    )
+
+    for username in all_names:
+        if username in registry:
+            data = registry[username]
+            active, until = _admin_reset_status(data)
+            created = str(data.get("created_at", "") or "")
+            created_label = created[:10] if created else "—"
+            status = (
+                f"Liberada até {until.strftime('%d/%m/%Y %H:%M')}"
+                if active and until is not None
+                else "Normal"
+            )
+            account_type = "Conta ativa"
+            name = str(data.get("name", username))
+        else:
+            data = legacy_users[username]
+            created_label = "—"
+            status = "Aguardando primeiro acesso"
+            account_type = "Conta antiga"
+            name = str(data.get("name", username))
+
+        rows.append(
+            {
+                "Nome": name,
+                "Usuário": username,
+                "Conta": account_type,
+                "Criada em": created_label,
+                "Redefinição": status,
+            }
+        )
+
+    if not rows:
+        st.info("Nenhuma conta cadastrada.")
+        return
+
+    st.dataframe(
+        rows,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.markdown("### Redefinição de senha")
+    st.caption(
+        "Use esta opção somente quando o usuário também perdeu o código de recuperação."
+    )
+
+    selected = st.selectbox(
+        "Usuário",
+        options=all_names,
+        format_func=lambda username: (
+            f"{registry.get(username, legacy_users.get(username, {})).get('name', username)}"
+            f" — {username}"
+        ),
+        key="admin_user_selected",
+    )
+
+    selected_registry = registry.get(selected)
+    if selected_registry is None:
+        st.warning(
+            "Essa conta ainda usa o login antigo. "
+            "Ela precisa entrar uma vez com a senha atual antes de receber liberação administrativa."
+        )
+        return
+
+    active, until = _admin_reset_status(selected_registry)
+    if active and until is not None:
+        st.info(
+            "Redefinição liberada até "
+            + until.strftime("%d/%m/%Y às %H:%M")
+            + "."
+        )
+
+    left, right = st.columns(2)
+    with left:
+        if st.button(
+            "Liberar redefinição por 24 horas",
+            type="primary",
+            use_container_width=True,
+            disabled=active,
+            key="admin_release_reset",
+        ):
+            ok, save_error = _set_admin_reset(selected, True)
+            if ok:
+                st.success(
+                    "Liberação concluída. O usuário já pode definir uma nova senha "
+                    "sem informar o código antigo."
+                )
+                st.rerun()
+            else:
+                st.error(save_error)
+
+    with right:
+        if st.button(
+            "Cancelar liberação",
+            use_container_width=True,
+            disabled=not active,
+            key="admin_cancel_reset",
+        ):
+            ok, save_error = _set_admin_reset(selected, False)
+            if ok:
+                st.success("Liberação cancelada.")
+                st.rerun()
+            else:
+                st.error(save_error)
 
 
 def _clear_session():
@@ -656,7 +854,8 @@ def require_login():
 
                 with tab_reset:
                     st.caption(
-                        "Use o código de recuperação gerado pela sua conta."
+                        "Use seu código de recuperação. Se você perdeu esse código, "
+                        "o administrador pode liberar uma redefinição temporária."
                     )
                     reset_generated_code = st.session_state.get(
                         "nexo_reset_recovery_code"
@@ -666,7 +865,7 @@ def require_login():
                         st.caption("Novo código de recuperação")
                         st.code(reset_generated_code)
                         st.caption(
-                            "Guarde este código. O anterior não deve mais ser utilizado."
+                            "Guarde este código. O código anterior foi invalidado."
                         )
 
                     with st.form("nexo_reset_form", clear_on_submit=False):
@@ -675,7 +874,7 @@ def require_login():
                             key="reset_username",
                         )
                         recovery_code = st.text_input(
-                            "Código de recuperação",
+                            "Código de recuperação (opcional se o administrador liberou)",
                             type="password",
                             key="reset_recovery",
                         )
@@ -705,9 +904,6 @@ def require_login():
                             reset_errors.append("As senhas não conferem.")
                         if not str(reset_username or "").strip():
                             reset_errors.append("Informe o usuário.")
-                        if not str(recovery_code or "").strip():
-                            reset_errors.append("Informe o código de recuperação.")
-
                         if reset_errors:
                             for error in reset_errors:
                                 st.error(error)
