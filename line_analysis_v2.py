@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from auth_module import is_legacy_owner, user_storage_prefix
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.formatting.rule import ColorScaleRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -71,8 +72,12 @@ STATUS_COLOR_RANGE = [
 ABC_COLOR_DOMAIN = ["A", "B", "C"]
 ABC_COLOR_RANGE = ["#16A34A", "#2563EB", "#94A3B8"]
 
-PERSISTENT_CRITERIA_FILE = "saved_line_criteria.json"
+LEGACY_PERSISTENT_CRITERIA_FILE = "saved_line_criteria.json"
 DEFAULT_GITHUB_REPO = "jvdntts-code/planejamento-pedidos"
+
+
+def _criteria_file():
+    return f"{user_storage_prefix()}/preferences/line_analysis_criteria.json"
 DEFAULT_GITHUB_BRANCH = "main"
 
 DEFAULT_CRITERIA = {
@@ -1617,6 +1622,19 @@ def _get_secret(name, default=""):
 
 
 def _github_persistence_settings():
+    repo = _get_secret(
+        "GITHUB_DATA_REPO",
+        _get_secret("GITHUB_REPO", DEFAULT_GITHUB_REPO),
+    )
+    branch = _get_secret(
+        "GITHUB_DATA_BRANCH",
+        _get_secret("GITHUB_BRANCH", DEFAULT_GITHUB_BRANCH),
+    )
+    token = _get_secret("GITHUB_TOKEN", "")
+    return str(repo), str(branch), str(token)
+
+
+def _legacy_github_settings():
     repo = _get_secret("GITHUB_REPO", DEFAULT_GITHUB_REPO)
     branch = _get_secret("GITHUB_BRANCH", DEFAULT_GITHUB_BRANCH)
     token = _get_secret("GITHUB_TOKEN", "")
@@ -1634,9 +1652,8 @@ def _github_headers(token=""):
     return headers
 
 
-def _github_read_config():
-    repo, branch, token = _github_persistence_settings()
-    encoded_path = urllib.parse.quote(PERSISTENT_CRITERIA_FILE, safe="/")
+def _github_read_config_from(repo, branch, token, file_path):
+    encoded_path = urllib.parse.quote(file_path, safe="/")
     encoded_branch = urllib.parse.quote(branch, safe="")
     url = (
         f"https://api.github.com/repos/{repo}/contents/{encoded_path}"
@@ -1652,20 +1669,53 @@ def _github_read_config():
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
-            return None, None
-        return None, f"GitHub respondeu HTTP {exc.code} ao carregar o padrão."
+            return None, None, False
+        return None, f"GitHub respondeu HTTP {exc.code} ao carregar o padrão.", False
     except Exception as exc:
-        return None, f"Não foi possível carregar o padrão permanente: {exc}"
+        return None, f"Não foi possível carregar o padrão permanente: {exc}", False
 
     try:
         content = base64.b64decode(payload["content"]).decode("utf-8")
         saved = json.loads(content)
         merged = {**DEFAULT_CRITERIA, **saved}
         if _criteria_errors(merged):
-            return None, "O padrão salvo no GitHub está inválido e foi ignorado."
-        return merged, None
+            return None, "O padrão salvo no GitHub está inválido e foi ignorado.", True
+        return merged, None, True
     except Exception as exc:
-        return None, f"Não foi possível interpretar o padrão salvo: {exc}"
+        return None, f"Não foi possível interpretar o padrão salvo: {exc}", True
+
+
+def _github_read_config():
+    repo, branch, token = _github_persistence_settings()
+    saved, error, found = _github_read_config_from(
+        repo,
+        branch,
+        token,
+        _criteria_file(),
+    )
+    if error or found:
+        return saved, error
+
+    if is_legacy_owner():
+        legacy_repo, legacy_branch, legacy_token = _legacy_github_settings()
+        legacy, legacy_error, legacy_found = _github_read_config_from(
+            legacy_repo,
+            legacy_branch,
+            legacy_token,
+            LEGACY_PERSISTENT_CRITERIA_FILE,
+        )
+        if legacy_error:
+            return None, legacy_error
+        if legacy_found and legacy is not None:
+            ok, message = _github_save_config(legacy)
+            if ok:
+                return legacy, None
+            return legacy, (
+                "Critérios antigos carregados, mas ainda não foi possível migrá-los: "
+                + message
+            )
+
+    return None, None
 
 
 def _github_save_config(criteria):
@@ -1676,7 +1726,7 @@ def _github_save_config(criteria):
             "Falta configurar GITHUB_TOKEN nos Secrets do Streamlit para gravar no GitHub.",
         )
 
-    encoded_path = urllib.parse.quote(PERSISTENT_CRITERIA_FILE, safe="/")
+    encoded_path = urllib.parse.quote(_criteria_file(), safe="/")
     encoded_branch = urllib.parse.quote(branch, safe="")
     url = f"https://api.github.com/repos/{repo}/contents/{encoded_path}"
 
@@ -1699,7 +1749,7 @@ def _github_save_config(criteria):
 
     content = json.dumps(criteria, ensure_ascii=False, indent=2, sort_keys=True)
     payload = {
-        "message": "Atualiza critérios padrão da análise de linha",
+        "message": "Atualiza critérios pessoais da análise de linha",
         "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
         "branch": branch,
     }
@@ -1719,7 +1769,7 @@ def _github_save_config(criteria):
     try:
         with urllib.request.urlopen(put_request, timeout=15) as response:
             response.read()
-        return True, "Critérios salvos como padrão permanente."
+        return True, "Critérios pessoais salvos como padrão permanente."
     except urllib.error.HTTPError as exc:
         try:
             detail = json.loads(exc.read().decode("utf-8")).get("message", "")
