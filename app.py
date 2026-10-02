@@ -27,15 +27,33 @@ html, body, .stApp,
 [data-testid="stSidebar"] {
     font-family: "Times New Roman", Times, serif !important;
 }
-.block-container {padding-top: 1rem; padding-bottom: 3rem;}
-div[data-testid="metric-container"] {border:1px solid rgba(128,128,128,.25); border-radius:12px; padding:12px;}
+.block-container {padding-top: 1.4rem; padding-bottom: 3rem; max-width: 1500px;}
+div[data-testid="metric-container"] {
+    border:1px solid rgba(128,128,128,.18);
+    border-radius:10px;
+    padding:14px 16px;
+    background:transparent;
+}
+[data-testid="stSidebar"] {
+    border-right:1px solid rgba(128,128,128,.14);
+}
+.stButton > button, .stDownloadButton > button {
+    border-radius:8px !important;
+    box-shadow:none !important;
+}
+div[data-testid="stExpander"] {
+    border:1px solid rgba(128,128,128,.16);
+    border-radius:10px;
+    box-shadow:none;
+}
 .small {font-size:.88rem; opacity:.78}
 .nexo-brand {
-    border: 1px solid rgba(128,128,128,.22);
-    border-radius: 16px;
-    padding: 16px 16px 14px 16px;
-    margin-bottom: 14px;
-    background: rgba(37,99,235,.06);
+    border: 0;
+    border-bottom: 1px solid rgba(128,128,128,.16);
+    border-radius: 0;
+    padding: 8px 4px 16px 4px;
+    margin-bottom: 18px;
+    background: transparent;
 }
 .nexo-title {
     font-size: 1.65rem;
@@ -55,11 +73,12 @@ div[data-testid="metric-container"] {border:1px solid rgba(128,128,128,.25); bor
     margin-top: 8px;
 }
 .nexo-hero {
-    border: 1px solid rgba(128,128,128,.22);
-    border-radius: 18px;
-    padding: 26px 28px;
-    margin-bottom: 20px;
-    background: linear-gradient(135deg, rgba(37,99,235,.09), rgba(15,118,110,.05));
+    border: 0;
+    border-bottom: 1px solid rgba(128,128,128,.16);
+    border-radius: 0;
+    padding: 20px 0 22px 0;
+    margin-bottom: 24px;
+    background: transparent;
 }
 .nexo-hero h1 {margin: 0; font-size: 2.2rem; letter-spacing: .06em;}
 .nexo-hero p {margin: 8px 0 0 0; opacity: .72;}
@@ -80,13 +99,13 @@ st.sidebar.markdown("### Módulos")
 pagina = st.sidebar.radio(
     "Escolha a área",
     [
-        "🏠 Início",
-        "📦 Planejamento de Pedido",
-        "🎯 Meta de Compra",
-        "📊 Análise de Linha",
-        "🔎 Pendências",
-        "🧾 Gestão de Pedidos",
-        "✅ Minhas Tarefas",
+        "Início",
+        "Planejamento de Pedido",
+        "Meta de Compra",
+        "Análise de Linha",
+        "Pendências",
+        "Gestão de Pedidos",
+        "Minhas Tarefas",
     ],
     label_visibility="collapsed",
 )
@@ -104,21 +123,21 @@ def render_inicio():
     st.subheader("Sua central de trabalho")
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.info("📦 **Planejamento de Pedido**\n\nCalcule necessidades e gere pedidos com memória de cálculo.")
+        st.info("**Planejamento de Pedido**\n\nCalcule necessidades e gere pedidos com memória de cálculo.")
     with c2:
-        st.info("📊 **Análise de Linha**\n\nAvalie Curva ABC, cobertura, ruptura, risco, alto e excesso.")
+        st.info("**Análise de Linha**\n\nAvalie Curva ABC, cobertura, ruptura, risco, alto e excesso.")
     with c3:
-        st.info("✅ **Minhas Tarefas**\n\nOrganize pendências pessoais, prazos e prioridades.")
+        st.info("**Minhas Tarefas**\n\nOrganize pendências pessoais, prazos e prioridades.")
 
     st.markdown("### Próximos módulos")
     p1, p2 = st.columns(2)
     with p1:
         st.container(border=True).markdown(
-            "🔎 **Pendências**\n\nConfronto de arquivos, divergências, quantidades pendentes e acompanhamento."
+            "**Pendências**\n\nConfronto de arquivos, divergências, quantidades pendentes e acompanhamento."
         )
     with p2:
         st.container(border=True).markdown(
-            "🧾 **Gestão de Pedidos**\n\nAcompanhamento do pedido desde a emissão até o recebimento e finalização."
+            "**Gestão de Pedidos**\n\nAcompanhamento do pedido desde a emissão até o recebimento e finalização."
         )
 
 def render_em_construcao(titulo, descricao):
@@ -126,31 +145,31 @@ def render_em_construcao(titulo, descricao):
     st.info(descricao)
     st.caption("Este módulo já está reservado no NEXO e será construído sem interferir nas ferramentas atuais.")
 
-if pagina == "🏠 Início":
+if pagina == "Início":
     render_inicio()
     st.stop()
 
-if pagina == "🎯 Meta de Compra":
+if pagina == "Meta de Compra":
     render_purchase_goal()
     st.stop()
 
-if pagina == "📊 Análise de Linha":
+if pagina == "Análise de Linha":
     render_analise_linha()
     st.stop()
 
-if pagina == "🔎 Pendências":
+if pagina == "Pendências":
     render_pendencias()
     st.stop()
 
-if pagina == "🧾 Gestão de Pedidos":
+if pagina == "Gestão de Pedidos":
     render_gestao_pedidos()
     st.stop()
 
-if pagina == "✅ Minhas Tarefas":
+if pagina == "Minhas Tarefas":
     render_tasks()
     st.stop()
 
-st.title("📦 Planejamento Inteligente de Pedido")
+st.title("Planejamento Inteligente de Pedido")
 st.caption("NEXO | Gestão • Planejamento • Inteligência")
 
 REPORT_BRANCHES = ["M1","M6","M11","M12","M13","M21","M22","M23","M25","M26","M27","M28","M29","M31","M32","M33","M35","M39","M40","M56","M57"]
@@ -575,14 +594,14 @@ with col_import:
 with col_modelo:
     st.markdown("**Primeira vez usando?**")
     st.download_button(
-        '📥 Baixar modelo de importação',
+        'Baixar modelo de importação',
         data=main_import_template_bytes(),
         file_name='NEXO_modelo_importacao_planejamento.xlsx',
         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         use_container_width=True,
     )
 
-with st.expander('📘 Como preparar o arquivo para importação'):
+with st.expander('Como preparar o arquivo para importação'):
     st.markdown(
         """
         **Para evitar erros na importação:**
@@ -645,7 +664,7 @@ with st.expander('3) Pendências a abater no pedido (opcional)', expanded=abater
         with col_pend_modelo:
             st.markdown('**Modelo correto**')
             st.download_button(
-                '📥 Baixar modelo de pendências',
+                'Baixar modelo de pendências',
                 xlsx_bytes({'Pendencias': pend_template(base)}),
                 file_name='NEXO_modelo_pendencias_planejamento.xlsx',
                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
