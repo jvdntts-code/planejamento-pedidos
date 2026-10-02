@@ -1,4 +1,6 @@
 import hmac
+import re
+import unicodedata
 
 import streamlit as st
 
@@ -47,6 +49,52 @@ def _load_users():
             }
 
     return users
+
+
+def current_username():
+    return str(st.session_state.get("nexo_username", "")).strip()
+
+
+def _safe_user_slug(value):
+    text = str(value or "").strip().lower()
+    text = "".join(
+        char
+        for char in unicodedata.normalize("NFKD", text)
+        if not unicodedata.combining(char)
+    )
+    text = re.sub(r"[^a-z0-9._-]+", "-", text).strip("-._")
+    return text or "usuario"
+
+
+def user_storage_prefix(username=None):
+    user = username if username is not None else current_username()
+    return f"users/{_safe_user_slug(user)}"
+
+
+def is_legacy_owner(username=None):
+    user = str(username if username is not None else current_username()).strip()
+    if not user:
+        return False
+
+    explicit = str(_secret("NEXO_LEGACY_OWNER", "")).strip()
+    if explicit:
+        return hmac.compare_digest(user, explicit)
+
+    simple_user = str(_secret("NEXO_LOGIN_USER", "")).strip()
+    if simple_user:
+        return hmac.compare_digest(user, simple_user)
+
+    users = _load_users()
+    if len(users) == 1:
+        only_user = next(iter(users))
+        return hmac.compare_digest(user, only_user)
+
+    return False
+
+
+def _clear_session():
+    for key in list(st.session_state.keys()):
+        st.session_state.pop(key, None)
 
 
 def _valid_login(username, password, users):
@@ -126,11 +174,12 @@ def require_login():
 
                 if submitted:
                     if _valid_login(username, password, users):
+                        selected_user = username.strip()
+                        selected_name = users[selected_user]["name"]
+                        _clear_session()
                         st.session_state["nexo_authenticated"] = True
-                        st.session_state["nexo_username"] = username.strip()
-                        st.session_state["nexo_user_name"] = users[
-                            username.strip()
-                        ]["name"]
+                        st.session_state["nexo_username"] = selected_user
+                        st.session_state["nexo_user_name"] = selected_name
                         st.rerun()
                     else:
                         st.error("Usuário ou senha incorretos.")
@@ -142,9 +191,7 @@ def require_login():
 
     st.sidebar.caption(f"👤 {name}")
     if st.sidebar.button("Sair", key="nexo_logout", use_container_width=True):
-        st.session_state["nexo_authenticated"] = False
-        st.session_state["nexo_username"] = ""
-        st.session_state["nexo_user_name"] = ""
+        _clear_session()
         st.rerun()
 
     return {
