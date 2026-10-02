@@ -606,6 +606,15 @@ with st.sidebar:
 
 st.markdown("### 1) Importação do relatório")
 
+st.caption(
+    "Acesse o relatório no Metabase, faça o download e depois importe o arquivo no NEXO."
+)
+st.link_button(
+    "Abrir relatório no Metabase",
+    "http://metabase.samarc.com.br/question/4277-analise-parcial-de-itens-do-pedido-de-compra?Pedido_Compra=&Desconsiderar_vca_e_ssa=",
+    use_container_width=False,
+)
+
 col_import, col_modelo = st.columns([2.2, 1])
 with col_import:
     main = st.file_uploader(
