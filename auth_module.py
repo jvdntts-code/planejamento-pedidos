@@ -1000,17 +1000,37 @@ def require_login():
     username = st.session_state.get("nexo_username", "")
     name = st.session_state.get("nexo_user_name", username)
 
-    st.sidebar.caption(name)
-    _render_recovery_notice()
-    _render_admin_sidebar()
-
-    if st.sidebar.button("Sair", key="nexo_logout", use_container_width=True):
-        _clear_session()
-        st.rerun()
-
     return {
         "authenticated": True,
         "configured": True,
         "username": username,
         "name": name,
     }
+
+
+def render_sidebar_account_controls():
+    if not st.session_state.get("nexo_authenticated"):
+        return
+
+    username = st.session_state.get("nexo_username", "")
+    name = st.session_state.get("nexo_user_name", username)
+
+    st.sidebar.markdown(
+        '<div class="nexo-sidebar-spacer"></div>',
+        unsafe_allow_html=True,
+    )
+    _render_recovery_notice()
+
+    st.sidebar.markdown(
+        f'<div class="nexo-sidebar-account">{name}</div>',
+        unsafe_allow_html=True,
+    )
+    _render_admin_sidebar()
+
+    if st.sidebar.button(
+        "Sair",
+        key="nexo_logout",
+        use_container_width=True,
+    ):
+        _clear_session()
+        st.rerun()
