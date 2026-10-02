@@ -650,6 +650,76 @@ def render_user_admin():
                 st.error(save_error)
 
 
+def _render_admin_sidebar():
+    if not is_legacy_owner():
+        return
+
+    registry, _, error = _read_registry()
+    if error:
+        return
+
+    legacy_users = _load_legacy_users()
+    usernames = sorted(
+        set(registry.keys()) | set(legacy_users.keys()),
+        key=lambda value: value.casefold(),
+    )
+    if not usernames:
+        return
+
+    st.sidebar.markdown("---")
+    with st.sidebar.expander("Gerenciar usuários", expanded=False):
+        selected = st.selectbox(
+            "Conta",
+            options=usernames,
+            format_func=lambda username: (
+                f"{registry.get(username, legacy_users.get(username, {})).get('name', username)}"
+                f" — {username}"
+            ),
+            key="sidebar_admin_user",
+        )
+
+        if selected not in registry:
+            st.caption(
+                "Conta antiga: precisa entrar uma vez com a senha atual antes "
+                "da liberação administrativa."
+            )
+            return
+
+        active, until = _admin_reset_status(registry[selected])
+        if active and until is not None:
+            st.caption(
+                "Redefinição liberada até "
+                + until.strftime("%d/%m/%Y às %H:%M")
+            )
+
+        if st.button(
+            "Liberar redefinição",
+            type="primary",
+            use_container_width=True,
+            disabled=active,
+            key="sidebar_admin_release",
+        ):
+            ok, save_error = _set_admin_reset(selected, True)
+            if ok:
+                st.success("Redefinição liberada por 24 horas.")
+                st.rerun()
+            else:
+                st.error(save_error)
+
+        if st.button(
+            "Cancelar liberação",
+            use_container_width=True,
+            disabled=not active,
+            key="sidebar_admin_cancel",
+        ):
+            ok, save_error = _set_admin_reset(selected, False)
+            if ok:
+                st.success("Liberação cancelada.")
+                st.rerun()
+            else:
+                st.error(save_error)
+
+
 def _clear_session():
     for key in list(st.session_state.keys()):
         st.session_state.pop(key, None)
@@ -930,6 +1000,7 @@ def require_login():
 
     st.sidebar.caption(name)
     _render_recovery_notice()
+    _render_admin_sidebar()
 
     if st.sidebar.button("Sair", key="nexo_logout", use_container_width=True):
         _clear_session()
