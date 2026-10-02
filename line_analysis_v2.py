@@ -241,7 +241,7 @@ def line_import_template_bytes():
             for cell in ws[1]:
                 cell.font = Font(name="Times New Roman", bold=True, color=WHITE)
                 cell.fill = PatternFill("solid", fgColor=NAVY)
-                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
 
             for row in ws.iter_rows(min_row=2):
                 for cell in row:
@@ -1500,7 +1500,7 @@ def formatted_xlsx_bytes(
             v.value = value
             h.fill = PatternFill("solid", fgColor=LIGHT_BLUE)
             h.font = Font(color=NAVY, bold=True, size=10)
-            h.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            h.alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
             v.font = Font(color=DARK, bold=True, size=15)
             v.alignment = Alignment(horizontal="center", vertical="center")
 
@@ -1545,7 +1545,7 @@ def formatted_xlsx_bytes(
                 cell.alignment = Alignment(
                     horizontal="center",
                     vertical="center",
-                    wrap_text=True,
+                    wrap_text=False,
                 )
 
         status_start = 11
@@ -1555,15 +1555,15 @@ def formatted_xlsx_bytes(
 
         for row in range(status_start, status_end + 1):
             ws.cell(row, 4).number_format = 'R$ #,##0.00'
-            ws.cell(row, 5).number_format = '0.0%'
+            ws.cell(row, 5).number_format = '0.0"%"'
             ws.cell(row, 6).number_format = 'R$ #,##0.00'
 
         for row in range(abc_start, abc_end + 1):
             ws.cell(row, 10).number_format = 'R$ #,##0.00'
-            ws.cell(row, 11).number_format = '0.0%'
+            ws.cell(row, 11).number_format = '0.0"%"'
             ws.cell(row, 13).number_format = 'R$ #,##0.00'
-            ws.cell(row, 14).number_format = '0.0%'
-            ws.cell(row, 15).number_format = '0.0%'
+            ws.cell(row, 14).number_format = '0.0"%"'
+            ws.cell(row, 15).number_format = '0.0"%"'
 
         priority_title_row = max(status_end, abc_end) + 3
         ws.merge_cells(
@@ -1589,8 +1589,43 @@ def formatted_xlsx_bytes(
         priority_data_start = priority_header_row + 1
         priority_data_end = priority_data_start + len(priorities_panel) - 1
         for row in range(priority_data_start, priority_data_end + 1):
-            ws.cell(row, 3).number_format = '0.0%'
+            ws.cell(row, 3).number_format = '0.0"%"'
             ws.cell(row, 6).number_format = 'R$ #,##0.00'
+
+        # Layout do dashboard: leitura horizontal, sem quebra automática de linha.
+        dashboard_widths = {
+            "A": 30, "B": 11, "C": 17, "D": 21, "E": 13, "F": 19,
+            "G": 4,
+            "H": 14, "I": 11, "J": 21, "K": 16, "L": 17, "M": 19,
+            "N": 24, "O": 25,
+        }
+        for letter, width in dashboard_widths.items():
+            ws.column_dimensions[letter].width = width
+
+        ws.row_dimensions[5].height = 22
+        ws.row_dimensions[6].height = 28
+        ws.row_dimensions[9].height = 22
+        ws.row_dimensions[10].height = 24
+        ws.row_dimensions[priority_title_row].height = 22
+        ws.row_dimensions[priority_header_row].height = 24
+
+        for row in ws.iter_rows(min_row=5, max_row=priority_data_end, min_col=1, max_col=15):
+            for cell in row:
+                cell.alignment = Alignment(
+                    horizontal=(
+                        "left"
+                        if cell.column in (1, 5)
+                        and cell.row >= priority_data_start
+                        else "center"
+                    ),
+                    vertical="center",
+                    wrap_text=False,
+                )
+
+        # Mantém descrições da prioridade alinhadas à esquerda.
+        for row in range(priority_data_start, priority_data_end + 1):
+            ws.cell(row, 1).alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
+            ws.cell(row, 5).alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
 
         ws.freeze_panes = "A10"
 
