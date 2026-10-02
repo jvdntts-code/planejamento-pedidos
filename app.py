@@ -107,7 +107,7 @@ MENU_ITEMS = [
 ]
 if IS_ADMIN:
     MENU_ITEMS.insert(2, "Meta de Compra")
-    MENU_ITEMS.insert(4, "Pendências")
+    MENU_ITEMS.insert(4, "Análise de Pendências")
 
 pagina = st.sidebar.radio(
     "Escolha a área",
@@ -138,7 +138,7 @@ def render_inicio():
     p1, p2 = st.columns(2)
     with p1:
         st.container(border=True).markdown(
-            "**Pendências**\n\nConfronto de arquivos, divergências, quantidades pendentes e acompanhamento."
+            "**Análise de Pendências**\n\nAnalise recorrência, idade, marcas e pendências críticas diretamente no NEXO."
         )
     with p2:
         st.container(border=True).markdown(
@@ -165,7 +165,7 @@ if pagina == "Análise de Linha":
     render_analise_linha()
     st.stop()
 
-if pagina == "Pendências":
+if pagina == "Análise de Pendências":
     if not IS_ADMIN:
         st.error("Acesso restrito.")
         st.stop()
