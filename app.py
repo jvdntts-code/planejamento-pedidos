@@ -131,8 +131,6 @@ pagina = st.sidebar.radio(
     label_visibility="collapsed",
 )
 
-render_sidebar_account_controls()
-
 def render_inicio():
     st.markdown(
         """
@@ -170,26 +168,32 @@ def render_em_construcao(titulo, descricao):
 
 if pagina == "Início":
     render_inicio()
+    render_sidebar_account_controls()
     st.stop()
 
 if pagina == "Meta de Compra":
     render_purchase_goal()
+    render_sidebar_account_controls()
     st.stop()
 
 if pagina == "Análise de Linha":
     render_analise_linha()
+    render_sidebar_account_controls()
     st.stop()
 
 if pagina == "Análise de Pendências":
     render_pendencias()
+    render_sidebar_account_controls()
     st.stop()
 
 if pagina == "Gestão de Pedidos":
     render_gestao_pedidos()
+    render_sidebar_account_controls()
     st.stop()
 
 if pagina == "Minhas Tarefas":
     render_tasks()
+    render_sidebar_account_controls()
     st.stop()
 
 st.title("Planejamento Inteligente de Pedido")
@@ -603,6 +607,8 @@ with st.sidebar:
     else:
         st.caption('A necessidade de compra de todas as regiões está sendo considerada.')
     st.caption('Importante: essa seleção afeta somente a necessidade de compra das lojas. As regiões continuam integralmente na análise do mínimo da M20 e no cálculo do Lead Time.')
+
+render_sidebar_account_controls()
 
 st.markdown("### 1) Importação do relatório")
 
