@@ -534,7 +534,7 @@ with st.sidebar:
                 key=f'excluir_individual_{filial}',
                 help=(
                     f'Retira somente a necessidade de compra direta da {filial}. '
-                    'As vendas continuam na análise do mínimo da M20 e no cálculo do Lead Time.'
+                    'As vendas continuam na análise do mínimo da M20 e no cálculo do prazo de reposição.'
                 )
             )
 
@@ -554,12 +554,12 @@ with st.sidebar:
         st.caption('Nenhuma filial desconsiderada')
 
     leadtime_dias = st.number_input(
-        'Lead Time geral (dias)',
+        'Prazo de reposição geral (dias)',
         min_value=0,
         max_value=365,
         value=0,
         step=1,
-        help='Informe o Lead Time total: fornecedor + processo interno.'
+        help='Informe o prazo total de reposição: fornecedor + processo interno.'
     )
 
     abater_estoque_m20 = st.checkbox(
@@ -591,7 +591,7 @@ with st.sidebar:
     if considerar_necessidade:
         partes_regra.append('Necessidade das filiais')
     if leadtime_dias > 0:
-        partes_regra.append(f'Lead Time ({leadtime_dias} dias)')
+        partes_regra.append(f'Prazo de reposição ({leadtime_dias} dias)')
     regra = ' + '.join(partes_regra) if partes_regra else '0'
     if abater_estoque_m20:
         regra += ' − estoque M20'
@@ -609,7 +609,7 @@ with st.sidebar:
         st.caption('Sem pedido direto para: ' + ', '.join(regioes_excluidas) + '.')
     else:
         st.caption('A necessidade de compra de todas as regiões está sendo considerada.')
-    st.caption('Importante: essa seleção afeta somente a necessidade de compra das lojas. As regiões continuam integralmente na análise do mínimo da M20 e no cálculo do Lead Time.')
+    st.caption('Importante: essa seleção afeta somente a necessidade de compra das lojas. As regiões continuam integralmente na análise do mínimo da M20 e no cálculo do prazo de reposição.')
 
 st.markdown("### 1) Importação do relatório")
 
@@ -860,8 +860,8 @@ for _, r in base.iterrows():
         'M30 Vendas 90d':vendas90_m30,'Vendas 90d Grupo p/ Percentual':grupo_25,
         'Percentual Base':pct_m20,'Minimo M20 Atual':minimo_m20_atual,'Minimo M20 Correto':minimo_m20_correto,
         'Status':'OK' if minimo_m20_atual == minimo_m20_correto else 'AJUSTAR',
-        'Lead Time Geral (dias)':leadtime_dias,'Media Diaria Grupo 90d':media_diaria_grupo,
-        'Cobertura Lead Time':qtd_leadtime,
+        'Prazo de reposição geral (dias)':leadtime_dias,'Media Diaria Grupo 90d':media_diaria_grupo,
+        'Cobertura do prazo de reposição':qtd_leadtime,
         'Estoque Atual M20':estoque_m20,'Pendencia Compra':pendencia
     })
     final_rows.append({
@@ -871,9 +871,9 @@ for _, r in base.iterrows():
         'VCA sem Pedido Direto':'Sim' if excluir_vca else 'Não',
         'SSA sem Pedido Direto':'Sim' if excluir_ssa else 'Não',
         'Necessidade Aplicada':necessidade_aplicada,
-        'Lead Time Geral (dias)':leadtime_dias,
+        'Prazo de reposição geral (dias)':leadtime_dias,
         'Media Diaria Grupo 90d':media_diaria_grupo,
-        'Cobertura Lead Time':qtd_leadtime,
+        'Cobertura do prazo de reposição':qtd_leadtime,
         'Minimo M20 Atual':minimo_m20_atual,
         'Minimo Correto M20':minimo_m20_correto,
         'Estoque Atual M20':estoque_m20,
@@ -901,7 +901,7 @@ configuracao = pd.DataFrame({
         'Desconsiderar M33',
         'Desconsiderar M56',
         'Desconsiderar M57',
-        'Lead Time geral (dias)',
+        'Prazo de reposição geral (dias)',
         'Abater estoque atual da M20',
         'Abater pendência de compra',
         'Percentual base do mínimo M20'
@@ -980,11 +980,11 @@ export = xlsx_bytes({
 })
 
 st.download_button(
-    '⬇️ Exportar pedido e memória de cálculo (.xlsx)',
+    'Exportar pedido e memória de cálculo (.xlsx)',
     export,
     file_name='pedido_final_calculado.xlsx',
     mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     type='primary'
 )
 
-st.caption('Os mínimos das filiais continuam validados pelo maior valor entre mínimo cadastrado e vendas de 90 dias. As caixas de VCA (M25–M29) e SSA (M14–M19) retiram somente a necessidade de compra direta dessas lojas. Todas elas continuam compondo normalmente a análise do mínimo da M20 e o histórico usado no Lead Time. O pedido final é arredondado pela embalagem de compra.')
+st.caption('Os mínimos das filiais continuam validados pelo maior valor entre mínimo cadastrado e vendas de 90 dias. As caixas de VCA (M25–M29) e SSA (M14–M19) retiram somente a necessidade de compra direta dessas lojas. Todas elas continuam compondo normalmente a análise do mínimo da M20 e o histórico usado no prazo de reposição. O pedido final é arredondado pela embalagem de compra.')
