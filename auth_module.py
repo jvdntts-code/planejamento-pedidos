@@ -1,8 +1,22 @@
+import base64
+import hashlib
 import hmac
+import json
 import re
+import secrets
+import string
 import unicodedata
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import datetime
 
 import streamlit as st
+
+
+AUTH_USERS_FILE = "auth/users.json"
+DEFAULT_DATA_BRANCH = "main"
+PBKDF2_ITERATIONS = 240_000
 
 
 def _secret(name, default=""):
@@ -10,45 +24,6 @@ def _secret(name, default=""):
         return st.secrets[name] if name in st.secrets else default
     except Exception:
         return default
-
-
-def _load_users():
-    users = {}
-
-    # Formato recomendado para vários usuários:
-    # [auth.users.jvn]
-    # name = "JVN"
-    # password = "senha"
-    try:
-        auth = st.secrets["auth"] if "auth" in st.secrets else {}
-        users_cfg = auth.get("users", {}) if hasattr(auth, "get") else {}
-
-        for username, data in users_cfg.items():
-            if not hasattr(data, "get"):
-                continue
-            password = str(data.get("password", ""))
-            if not password:
-                continue
-            users[str(username).strip()] = {
-                "password": password,
-                "name": str(data.get("name", username)).strip() or str(username),
-            }
-    except Exception:
-        pass
-
-    # Formato simples, útil para começar com apenas um usuário.
-    if not users:
-        username = str(_secret("NEXO_LOGIN_USER", "")).strip()
-        password = str(_secret("NEXO_LOGIN_PASSWORD", ""))
-        display_name = str(_secret("NEXO_LOGIN_NAME", username)).strip()
-
-        if username and password:
-            users[username] = {
-                "password": password,
-                "name": display_name or username,
-            }
-
-    return users
 
 
 def current_username():
@@ -71,6 +46,391 @@ def user_storage_prefix(username=None):
     return f"users/{_safe_user_slug(user)}"
 
 
+def _data_settings():
+    repo = str(_secret("GITHUB_DATA_REPO", "")).strip()
+    branch = str(
+        _secret(
+            "GITHUB_DATA_BRANCH",
+            _secret("GITHUB_BRANCH", DEFAULT_DATA_BRANCH),
+        )
+    ).strip()
+    token = str(_secret("GITHUB_TOKEN", "")).strip()
+    return repo, branch or DEFAULT_DATA_BRANCH, token
+
+
+def _github_headers(token=""):
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "nexo-auth",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _read_registry():
+    repo, branch, token = _data_settings()
+    if not repo or not token:
+        return {}, None, (
+            "Configure GITHUB_DATA_REPO e GITHUB_TOKEN nos Secrets "
+            "para habilitar contas dinâmicas."
+        )
+
+    encoded_path = urllib.parse.quote(AUTH_USERS_FILE, safe="/")
+    encoded_branch = urllib.parse.quote(branch, safe="")
+    url = (
+        f"https://api.github.com/repos/{repo}/contents/{encoded_path}"
+        f"?ref={encoded_branch}"
+    )
+    request = urllib.request.Request(url, headers=_github_headers(token), method="GET")
+
+    try:
+        with urllib.request.urlopen(request, timeout=12) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        raw = base64.b64decode(payload.get("content", "")).decode("utf-8")
+        saved = json.loads(raw)
+        users = saved.get("users", {}) if isinstance(saved, dict) else {}
+        return (users if isinstance(users, dict) else {}), payload.get("sha"), None
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return {}, None, None
+        return {}, None, f"Não foi possível carregar as contas (HTTP {exc.code})."
+    except Exception as exc:
+        return {}, None, f"Não foi possível carregar as contas: {exc}"
+
+
+def _write_registry(users, sha=None):
+    repo, branch, token = _data_settings()
+    if not repo or not token:
+        return False, (
+            "Configure GITHUB_DATA_REPO e GITHUB_TOKEN nos Secrets "
+            "para salvar contas."
+        )
+
+    encoded_path = urllib.parse.quote(AUTH_USERS_FILE, safe="/")
+    url = f"https://api.github.com/repos/{repo}/contents/{encoded_path}"
+
+    if sha is None:
+        _, current_sha, read_error = _read_registry()
+        if read_error:
+            return False, read_error
+        sha = current_sha
+
+    payload_data = {
+        "version": 1,
+        "users": users,
+    }
+    raw = json.dumps(
+        payload_data,
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=True,
+    ).encode("utf-8")
+
+    payload = {
+        "message": "Atualiza contas do NEXO",
+        "content": base64.b64encode(raw).decode("ascii"),
+        "branch": branch,
+    }
+    if sha:
+        payload["sha"] = sha
+
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            **_github_headers(token),
+            "Content-Type": "application/json",
+        },
+        method="PUT",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            response.read()
+        return True, None
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read().decode("utf-8")).get("message", "")
+        except Exception:
+            detail = ""
+        suffix = f" — {detail}" if detail else ""
+        return False, f"Não foi possível salvar as contas (HTTP {exc.code}){suffix}."
+    except Exception as exc:
+        return False, f"Não foi possível salvar as contas: {exc}"
+
+
+def _load_legacy_users():
+    users = {}
+
+    try:
+        auth = st.secrets["auth"] if "auth" in st.secrets else {}
+        users_cfg = auth.get("users", {}) if hasattr(auth, "get") else {}
+
+        for username, data in users_cfg.items():
+            if not hasattr(data, "get"):
+                continue
+            password = str(data.get("password", ""))
+            if not password:
+                continue
+            key = str(username).strip()
+            users[key] = {
+                "password": password,
+                "name": str(data.get("name", username)).strip() or key,
+                "source": "legacy",
+            }
+    except Exception:
+        pass
+
+    username = str(_secret("NEXO_LOGIN_USER", "")).strip()
+    password = str(_secret("NEXO_LOGIN_PASSWORD", ""))
+    display_name = str(_secret("NEXO_LOGIN_NAME", username)).strip()
+
+    if username and password and username not in users:
+        users[username] = {
+            "password": password,
+            "name": display_name or username,
+            "source": "legacy",
+        }
+
+    return users
+
+
+def _password_hash(password, salt=None):
+    salt_bytes = bytes.fromhex(salt) if salt else secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        str(password).encode("utf-8"),
+        salt_bytes,
+        PBKDF2_ITERATIONS,
+    )
+    return salt_bytes.hex(), digest.hex()
+
+
+def _verify_hash(value, salt, expected):
+    if not salt or not expected:
+        return False
+    _, calculated = _password_hash(value, salt=salt)
+    return hmac.compare_digest(calculated, str(expected))
+
+
+def _new_recovery_code():
+    alphabet = string.ascii_uppercase + string.digits
+    raw = "".join(secrets.choice(alphabet) for _ in range(16))
+    return "-".join(raw[i:i + 4] for i in range(0, 16, 4))
+
+
+def _normalize_recovery_code(value):
+    return re.sub(r"[^A-Z0-9]+", "", str(value or "").upper())
+
+
+def _username_key(value):
+    return str(value or "").strip().casefold()
+
+
+def _find_registry_user(users, username):
+    target = _username_key(username)
+    for key, data in users.items():
+        if _username_key(key) == target:
+            return key, data
+    return None, None
+
+
+def _find_legacy_user(users, username):
+    target = _username_key(username)
+    for key, data in users.items():
+        if _username_key(key) == target:
+            return key, data
+    return None, None
+
+
+def _load_users():
+    registry, _, registry_error = _read_registry()
+    users = {}
+
+    for username, data in registry.items():
+        if not isinstance(data, dict):
+            continue
+        users[username] = {
+            **data,
+            "name": str(data.get("name", username)).strip() or username,
+            "source": "registry",
+        }
+
+    for username, data in _load_legacy_users().items():
+        if _find_registry_user(registry, username)[0] is None:
+            users[username] = data
+
+    return users, registry_error
+
+
+def _valid_login(username, password, users):
+    key, user = _find_registry_user(users, username)
+    if user is None:
+        return False, None, None
+
+    if user.get("source") == "registry":
+        ok = _verify_hash(
+            str(password or ""),
+            str(user.get("password_salt", "")),
+            str(user.get("password_hash", "")),
+        )
+    else:
+        ok = hmac.compare_digest(
+            str(password or ""),
+            str(user.get("password", "")),
+        )
+
+    return ok, key, user
+
+
+def _validate_new_account(name, username, password, confirm):
+    errors = []
+    name = str(name or "").strip()
+    username = str(username or "").strip()
+
+    if len(name) < 2:
+        errors.append("Informe seu nome.")
+    if not re.fullmatch(r"[A-Za-z0-9._-]{3,40}", username):
+        errors.append(
+            "O usuário deve ter de 3 a 40 caracteres e usar apenas letras, "
+            "números, ponto, hífen ou sublinhado."
+        )
+    if len(str(password or "")) < 8:
+        errors.append("A senha deve ter pelo menos 8 caracteres.")
+    if str(password or "") != str(confirm or ""):
+        errors.append("As senhas não conferem.")
+    return errors
+
+
+def _create_registry_user(name, username, password):
+    registry, sha, error = _read_registry()
+    if error:
+        return False, error, None, None
+
+    legacy = _load_legacy_users()
+    if (
+        _find_registry_user(registry, username)[0] is not None
+        or _find_legacy_user(legacy, username)[0] is not None
+    ):
+        return False, "Este usuário já existe.", None, None
+
+    recovery_code = _new_recovery_code()
+    password_salt, password_hash = _password_hash(password)
+    recovery_salt, recovery_hash = _password_hash(
+        _normalize_recovery_code(recovery_code)
+    )
+
+    canonical = str(username).strip()
+    registry[canonical] = {
+        "name": str(name).strip(),
+        "password_salt": password_salt,
+        "password_hash": password_hash,
+        "recovery_salt": recovery_salt,
+        "recovery_hash": recovery_hash,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "password_changed_at": datetime.now().isoformat(timespec="seconds"),
+    }
+
+    ok, save_error = _write_registry(registry, sha=sha)
+    if not ok:
+        return False, save_error, None, None
+
+    return True, None, canonical, recovery_code
+
+
+def _migrate_legacy_user(username, user, password):
+    registry, sha, error = _read_registry()
+    if error:
+        return None, error
+
+    existing_key, _ = _find_registry_user(registry, username)
+    if existing_key is not None:
+        return None, None
+
+    recovery_code = _new_recovery_code()
+    password_salt, password_hash = _password_hash(password)
+    recovery_salt, recovery_hash = _password_hash(
+        _normalize_recovery_code(recovery_code)
+    )
+
+    registry[str(username).strip()] = {
+        "name": str(user.get("name", username)).strip() or str(username).strip(),
+        "password_salt": password_salt,
+        "password_hash": password_hash,
+        "recovery_salt": recovery_salt,
+        "recovery_hash": recovery_hash,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "password_changed_at": datetime.now().isoformat(timespec="seconds"),
+        "migrated_from_secrets": True,
+    }
+
+    ok, save_error = _write_registry(registry, sha=sha)
+    if not ok:
+        return None, save_error
+
+    return recovery_code, None
+
+
+def _reset_password(username, recovery_code, new_password):
+    registry, sha, error = _read_registry()
+    if error:
+        return False, error
+
+    key, user = _find_registry_user(registry, username)
+
+    admin_code = str(_secret("NEXO_ADMIN_CODE", "")).strip()
+    supplied = str(recovery_code or "").strip()
+    admin_ok = bool(admin_code) and hmac.compare_digest(supplied, admin_code)
+
+    if user is None:
+        legacy_key, legacy_user = _find_legacy_user(_load_legacy_users(), username)
+        if legacy_user is None or not admin_ok:
+            return False, "Não foi possível validar a recuperação desta conta."
+
+        recovery_new = _new_recovery_code()
+        password_salt, password_hash = _password_hash(new_password)
+        recovery_salt, recovery_hash = _password_hash(
+            _normalize_recovery_code(recovery_new)
+        )
+        registry[legacy_key] = {
+            "name": str(legacy_user.get("name", legacy_key)),
+            "password_salt": password_salt,
+            "password_hash": password_hash,
+            "recovery_salt": recovery_salt,
+            "recovery_hash": recovery_hash,
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "password_changed_at": datetime.now().isoformat(timespec="seconds"),
+            "migrated_from_secrets": True,
+        }
+        ok, save_error = _write_registry(registry, sha=sha)
+        if not ok:
+            return False, save_error
+        st.session_state["nexo_reset_recovery_code"] = recovery_new
+        return True, None
+
+    recovery_ok = _verify_hash(
+        _normalize_recovery_code(supplied),
+        str(user.get("recovery_salt", "")),
+        str(user.get("recovery_hash", "")),
+    )
+
+    if not recovery_ok and not admin_ok:
+        return False, "Código de recuperação inválido."
+
+    password_salt, password_hash = _password_hash(new_password)
+    user["password_salt"] = password_salt
+    user["password_hash"] = password_hash
+    user["password_changed_at"] = datetime.now().isoformat(timespec="seconds")
+    registry[key] = user
+
+    ok, save_error = _write_registry(registry, sha=sha)
+    if not ok:
+        return False, save_error
+
+    return True, None
+
+
 def is_legacy_owner(username=None):
     user = str(username if username is not None else current_username()).strip()
     if not user:
@@ -84,7 +444,7 @@ def is_legacy_owner(username=None):
     if simple_user:
         return hmac.compare_digest(user, simple_user)
 
-    users = _load_users()
+    users, _ = _load_users()
     if len(users) == 1:
         only_user = next(iter(users))
         return hmac.compare_digest(user, only_user)
@@ -97,29 +457,26 @@ def _clear_session():
         st.session_state.pop(key, None)
 
 
-def _valid_login(username, password, users):
-    username = str(username or "").strip()
-    password = str(password or "")
-
-    if username not in users:
-        return False
-
-    saved = str(users[username].get("password", ""))
-    return hmac.compare_digest(password, saved)
+def _render_recovery_notice():
+    recovery_code = st.session_state.get("nexo_new_recovery_code")
+    if recovery_code:
+        st.sidebar.markdown("---")
+        st.sidebar.caption("Código de recuperação")
+        st.sidebar.code(recovery_code)
+        st.sidebar.caption(
+            "Guarde este código em local seguro. Ele será necessário se você esquecer a senha."
+        )
+        if st.sidebar.button(
+            "Já guardei",
+            key="nexo_recovery_saved",
+            use_container_width=True,
+        ):
+            st.session_state.pop("nexo_new_recovery_code", None)
+            st.rerun()
 
 
 def require_login():
-    users = _load_users()
-
-    # Não bloqueia o app antes da configuração dos Secrets.
-    if not users:
-        st.sidebar.warning("Login ainda não configurado.")
-        return {
-            "authenticated": False,
-            "configured": False,
-            "username": "",
-            "name": "",
-        }
+    users, registry_error = _load_users()
 
     if "nexo_authenticated" not in st.session_state:
         st.session_state["nexo_authenticated"] = False
@@ -138,12 +495,15 @@ def require_login():
                 font-size:2.4rem;
                 font-weight:800;
                 letter-spacing:.10em;
-                margin-top:6rem;
+                margin-top:4.5rem;
             }
             .nexo-login-subtitle {
                 text-align:center;
-                opacity:.68;
-                margin-bottom:1.5rem;
+                opacity:.62;
+                margin-bottom:1.7rem;
+            }
+            div[data-testid="stTabs"] button {
+                font-size:.92rem;
             }
             </style>
             <div class="nexo-login-title">NEXO</div>
@@ -152,44 +512,229 @@ def require_login():
             unsafe_allow_html=True,
         )
 
-        left, center, right = st.columns([1.3, 1, 1.3])
+        left, center, right = st.columns([1.15, 1.35, 1.15])
         with center:
             with st.container(border=True):
-                st.markdown("### Entrar")
-                with st.form("nexo_login_form", clear_on_submit=False):
-                    username = st.text_input(
-                        "Usuário",
-                        autocomplete="username",
-                    )
-                    password = st.text_input(
-                        "Senha",
-                        type="password",
-                        autocomplete="current-password",
-                    )
-                    submitted = st.form_submit_button(
-                        "Entrar",
-                        type="primary",
-                        use_container_width=True,
-                    )
+                tab_login, tab_signup, tab_reset = st.tabs(
+                    ["Entrar", "Criar conta", "Redefinir senha"]
+                )
 
-                if submitted:
-                    if _valid_login(username, password, users):
-                        selected_user = username.strip()
-                        selected_name = users[selected_user]["name"]
-                        _clear_session()
-                        st.session_state["nexo_authenticated"] = True
-                        st.session_state["nexo_username"] = selected_user
-                        st.session_state["nexo_user_name"] = selected_name
-                        st.rerun()
-                    else:
-                        st.error("Usuário ou senha incorretos.")
+                with tab_login:
+                    with st.form("nexo_login_form", clear_on_submit=False):
+                        username = st.text_input(
+                            "Usuário",
+                            autocomplete="username",
+                            key="login_username",
+                        )
+                        password = st.text_input(
+                            "Senha",
+                            type="password",
+                            autocomplete="current-password",
+                            key="login_password",
+                        )
+                        submitted = st.form_submit_button(
+                            "Entrar",
+                            type="primary",
+                            use_container_width=True,
+                        )
+
+                    if submitted:
+                        refreshed_users, _ = _load_users()
+                        valid, selected_user, user = _valid_login(
+                            username,
+                            password,
+                            refreshed_users,
+                        )
+                        if valid:
+                            recovery_code = None
+                            if user.get("source") == "legacy":
+                                recovery_code, migration_error = _migrate_legacy_user(
+                                    selected_user,
+                                    user,
+                                    password,
+                                )
+                                if migration_error:
+                                    st.error(migration_error)
+                                    st.stop()
+
+                            selected_name = str(
+                                user.get("name", selected_user)
+                            ).strip() or selected_user
+                            _clear_session()
+                            st.session_state["nexo_authenticated"] = True
+                            st.session_state["nexo_username"] = selected_user
+                            st.session_state["nexo_user_name"] = selected_name
+                            if recovery_code:
+                                st.session_state[
+                                    "nexo_new_recovery_code"
+                                ] = recovery_code
+                            st.rerun()
+                        else:
+                            st.error("Usuário ou senha incorretos.")
+
+                with tab_signup:
+                    st.caption(
+                        "Cada conta possui seus próprios dados, pedidos, tarefas e preferências."
+                    )
+                    signup_code_required = str(
+                        _secret("NEXO_SIGNUP_CODE", "")
+                    ).strip()
+
+                    with st.form("nexo_signup_form", clear_on_submit=False):
+                        new_name = st.text_input(
+                            "Nome",
+                            key="signup_name",
+                        )
+                        new_username = st.text_input(
+                            "Novo usuário",
+                            key="signup_username",
+                        )
+                        new_password = st.text_input(
+                            "Nova senha",
+                            type="password",
+                            key="signup_password",
+                        )
+                        new_confirm = st.text_input(
+                            "Confirmar senha",
+                            type="password",
+                            key="signup_confirm",
+                        )
+                        access_code = ""
+                        if signup_code_required:
+                            access_code = st.text_input(
+                                "Código de acesso",
+                                type="password",
+                                key="signup_access_code",
+                            )
+
+                        create = st.form_submit_button(
+                            "Criar conta",
+                            type="primary",
+                            use_container_width=True,
+                        )
+
+                    if create:
+                        errors = _validate_new_account(
+                            new_name,
+                            new_username,
+                            new_password,
+                            new_confirm,
+                        )
+                        if (
+                            signup_code_required
+                            and not hmac.compare_digest(
+                                str(access_code),
+                                signup_code_required,
+                            )
+                        ):
+                            errors.append("Código de acesso inválido.")
+
+                        if errors:
+                            for error in errors:
+                                st.error(error)
+                        else:
+                            ok, error, created_user, recovery_code = (
+                                _create_registry_user(
+                                    new_name,
+                                    new_username,
+                                    new_password,
+                                )
+                            )
+                            if not ok:
+                                st.error(error)
+                            else:
+                                _clear_session()
+                                st.session_state["nexo_authenticated"] = True
+                                st.session_state["nexo_username"] = created_user
+                                st.session_state["nexo_user_name"] = (
+                                    str(new_name).strip()
+                                )
+                                st.session_state[
+                                    "nexo_new_recovery_code"
+                                ] = recovery_code
+                                st.rerun()
+
+                with tab_reset:
+                    st.caption(
+                        "Use o código de recuperação gerado pela sua conta."
+                    )
+                    reset_generated_code = st.session_state.get(
+                        "nexo_reset_recovery_code"
+                    )
+                    if reset_generated_code:
+                        st.success("Senha redefinida.")
+                        st.caption("Novo código de recuperação")
+                        st.code(reset_generated_code)
+                        st.caption(
+                            "Guarde este código. O anterior não deve mais ser utilizado."
+                        )
+
+                    with st.form("nexo_reset_form", clear_on_submit=False):
+                        reset_username = st.text_input(
+                            "Usuário",
+                            key="reset_username",
+                        )
+                        recovery_code = st.text_input(
+                            "Código de recuperação",
+                            type="password",
+                            key="reset_recovery",
+                        )
+                        reset_password = st.text_input(
+                            "Nova senha",
+                            type="password",
+                            key="reset_password",
+                        )
+                        reset_confirm = st.text_input(
+                            "Confirmar nova senha",
+                            type="password",
+                            key="reset_confirm",
+                        )
+                        reset = st.form_submit_button(
+                            "Redefinir senha",
+                            type="primary",
+                            use_container_width=True,
+                        )
+
+                    if reset:
+                        reset_errors = []
+                        if len(str(reset_password or "")) < 8:
+                            reset_errors.append(
+                                "A nova senha deve ter pelo menos 8 caracteres."
+                            )
+                        if str(reset_password or "") != str(reset_confirm or ""):
+                            reset_errors.append("As senhas não conferem.")
+                        if not str(reset_username or "").strip():
+                            reset_errors.append("Informe o usuário.")
+                        if not str(recovery_code or "").strip():
+                            reset_errors.append("Informe o código de recuperação.")
+
+                        if reset_errors:
+                            for error in reset_errors:
+                                st.error(error)
+                        else:
+                            ok, error = _reset_password(
+                                reset_username,
+                                recovery_code,
+                                reset_password,
+                            )
+                            if ok:
+                                st.success(
+                                    "Senha redefinida. Você já pode entrar com a nova senha."
+                                )
+                            else:
+                                st.error(error)
+
+                if registry_error:
+                    st.caption(registry_error)
 
         st.stop()
 
     username = st.session_state.get("nexo_username", "")
     name = st.session_state.get("nexo_user_name", username)
 
-    st.sidebar.caption(f"{name}")
+    st.sidebar.caption(name)
+    _render_recovery_notice()
+
     if st.sidebar.button("Sair", key="nexo_logout", use_container_width=True):
         _clear_session()
         st.rerun()
