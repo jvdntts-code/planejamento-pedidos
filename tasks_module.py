@@ -271,12 +271,12 @@ def render_tasks():
     tasks = _load_state()
     today = date.today()
 
-    st.title("✅ Minhas Tarefas")
+    st.title("Minhas Tarefas")
     st.caption("Sua lista pessoal de pendências, prazos e acompanhamentos.")
 
     _, _, token = _settings()
     if token:
-        st.success("☁️ Salvamento permanente habilitado.")
+        st.success("Salvamento permanente habilitado.")
     else:
         st.warning(
             "As tarefas estão funcionando, mas sem GITHUB_TOKEN elas não ficam salvas após reiniciar o app."
@@ -308,7 +308,7 @@ def render_tasks():
     c3.metric("Atrasadas", overdue_count)
     c4.metric("Concluídas", done_count)
 
-    with st.expander("➕ Nova tarefa", expanded=not tasks):
+    with st.expander("Nova tarefa", expanded=not tasks):
         with st.form("new_task_form", clear_on_submit=True):
             title = st.text_input("Título da tarefa")
             description = st.text_area(
@@ -421,13 +421,13 @@ def render_tasks():
             status_label = _task_status_label(task)
 
             if status_label == "Atrasada":
-                icon = "🔴"
+                icon = "Atrasada"
             elif status_label == "Hoje":
-                icon = "🟠"
+                icon = "Vence hoje"
             elif task.get("status") == "Concluída":
-                icon = "✅"
+                icon = "Concluída"
             elif task.get("priority") == "Alta":
-                icon = "🔺"
+                icon = "Prioridade alta"
             else:
                 icon = "⬜"
 
@@ -439,10 +439,10 @@ def render_tasks():
 
                 meta = []
                 if due:
-                    meta.append(f"📅 {due.strftime('%d/%m/%Y')}")
-                meta.append(f"⚡ {task.get('priority', 'Média')}")
-                meta.append(f"🏷️ {task.get('category', 'Outro')}")
-                meta.append(f"📌 {task.get('status', 'Pendente')}")
+                    meta.append(f"Prazo {due.strftime('%d/%m/%Y')}")
+                meta.append(f"Prioridade {task.get('priority', 'Média')}")
+                meta.append(f"Categoria {task.get('category', 'Outro')}")
+                meta.append(f"Status {task.get('status', 'Pendente')}")
                 st.caption("  •  ".join(meta))
 
                 if task.get("description"):
@@ -458,7 +458,7 @@ def render_tasks():
                         1 for item in checklist if item.get("done")
                     )
                     st.markdown(
-                        f"**☑️ Checklist {completed_checklist}/{len(checklist)}**"
+                        f"**Checklist {completed_checklist}/{len(checklist)}**"
                     )
                     progress_value = (
                         completed_checklist / len(checklist)
@@ -492,7 +492,7 @@ def render_tasks():
                 task_id = task["id"]
 
                 if task.get("status") != "Concluída":
-                    if a1.button("✅ Concluir", key=f"done_{task_id}", use_container_width=True):
+                    if a1.button("Concluir", key=f"done_{task_id}", use_container_width=True):
                         for item in tasks:
                             if item["id"] == task_id:
                                 item["status"] = "Concluída"
@@ -517,10 +517,10 @@ def render_tasks():
                         st.rerun()
 
                 edit_key = f"edit_open_{task_id}"
-                if a3.button("✏️ Editar", key=f"edit_{task_id}", use_container_width=True):
+                if a3.button("Editar", key=f"edit_{task_id}", use_container_width=True):
                     st.session_state[edit_key] = not st.session_state.get(edit_key, False)
 
-                if a4.button("🗑️ Excluir", key=f"delete_{task_id}", use_container_width=True):
+                if a4.button("Excluir", key=f"delete_{task_id}", use_container_width=True):
                     st.session_state[f"confirm_delete_{task_id}"] = True
 
                 if st.session_state.get(f"confirm_delete_{task_id}", False):
