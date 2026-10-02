@@ -12,7 +12,7 @@ from pendencias_module import render_pendencias
 from orders_module import render_gestao_pedidos
 from tasks_module import render_tasks
 from purchase_goal_module import render_purchase_goal
-from auth_module import require_login, is_legacy_owner
+from auth_module import require_login, is_legacy_owner, render_sidebar_account_controls
 
 st.set_page_config(page_title="NEXO | by JVN", page_icon="◆", layout="wide")
 
@@ -36,6 +36,23 @@ div[data-testid="metric-container"] {
 }
 [data-testid="stSidebar"] {
     border-right:1px solid rgba(128,128,128,.14);
+}
+section[data-testid="stSidebar"] > div {
+    height:100%;
+}
+section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+}
+.nexo-sidebar-spacer {
+    flex:1 1 auto;
+    min-height:28vh;
+}
+.nexo-sidebar-account {
+    font-size:.78rem;
+    opacity:.7;
+    margin: 0 0 8px 2px;
 }
 .stButton > button, .stDownloadButton > button {
     border-radius:8px !important;
@@ -114,6 +131,8 @@ pagina = st.sidebar.radio(
     MENU_ITEMS,
     label_visibility="collapsed",
 )
+
+render_sidebar_account_controls()
 
 def render_inicio():
     st.markdown(
