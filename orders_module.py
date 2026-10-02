@@ -1214,7 +1214,7 @@ def _render_order_detail(order_data, ciclo_meses, library):
     st.markdown("### Itens do pedido")
     st.caption(
         "Você pode preencher a coluna **Qtd Recebida**. "
-        "O saldo pendente e o status são recalculados logo abaixo."
+        "O saldo pendente e a situação são recalculados logo abaixo."
     )
 
     editor_key = f"order_items_{order_data['id']}"
@@ -1373,7 +1373,7 @@ def render_gestao_pedidos():
             with st.expander("Como ativar o salvamento permanente"):
                 st.caption(
                     "Use um repositório PRIVADO separado para os PDFs e dados dos pedidos. "
-                    "Depois configure GITHUB_DATA_REPO nas configurações protegidas do Streamlit."
+                    "Depois configure GITHUB_DATA_REPO nos Secrets do Streamlit."
                 )
 
     load_error = st.session_state.get("gestao_pedidos_load_error", "")
