@@ -260,6 +260,86 @@ def line_import_template_bytes():
     return output.getvalue()
 
 
+def _normalize_product_code(value):
+    if pd.isna(value):
+        return ""
+    text = str(value).strip().upper()
+    text = re.sub(r"\\.0$", "", text)
+    return re.sub(r"[^A-Z0-9]+", "", text)
+
+
+def _prepare_sales_price_report(df):
+    if df is None or df.empty:
+        raise ValueError("O arquivo Vendas Produtos está vazio.")
+
+    code_col = find_col(
+        df,
+        "Codigo",
+        "Código",
+        "CodProduto",
+        "Codigo Produto",
+        "Código Produto",
+        "CODIGO INTERNO",
+    )
+    price_col = find_col(
+        df,
+        "Preço Venda",
+        "Preco Venda",
+        "Valor Venda",
+        "Vl Venda",
+        "Preço Unitário Venda",
+        "Preco Unitario Venda",
+        "Valor Unitário",
+        "Valor Unitario",
+    )
+    if code_col is None or price_col is None:
+        raise ValueError(
+            "No arquivo Vendas Produtos, não consegui identificar as colunas de código do produto e preço de venda."
+        )
+
+    out = pd.DataFrame()
+    out["codigo_chave"] = df[code_col].map(_normalize_product_code)
+    out["preco_venda_complemento"] = pd.to_numeric(df[price_col], errors="coerce")
+    out = out[
+        out["codigo_chave"].ne("")
+        & out["preco_venda_complemento"].notna()
+        & (out["preco_venda_complemento"] >= 0)
+    ].copy()
+
+    if out.empty:
+        raise ValueError("O arquivo Vendas Produtos não possui preços de venda válidos.")
+
+    return (
+        out.groupby("codigo_chave", as_index=False)["preco_venda_complemento"]
+        .max()
+    )
+
+
+def _apply_sales_prices(base, sales_df):
+    prices = _prepare_sales_price_report(sales_df)
+    out = base.copy()
+    out["codigo_chave"] = out["codigo"].map(_normalize_product_code)
+    out = out.merge(prices, on="codigo_chave", how="left")
+
+    found = out["preco_venda_complemento"].notna()
+    out.loc[found, "preco_venda"] = out.loc[found, "preco_venda_complemento"]
+    out["preco_venda_origem"] = np.where(
+        found,
+        "Vendas Produtos",
+        out["preco_venda_origem"],
+    )
+
+    matched = int(found.sum())
+    missing = int((~found).sum())
+
+    out = out.drop(columns=["codigo_chave", "preco_venda_complemento"], errors="ignore")
+    out["valor_estoque"] = out["estoque"] * out["preco_venda"]
+    out["faturamento_90"] = out["vendas90"] * out["preco_venda"]
+    out["faturamento_longo"] = out["vendas_longo"] * out["preco_venda"]
+
+    return out, matched, missing
+
+
 def standardize_line_report(df):
     aliases = {
         "codigo": ("Codigo",),
@@ -273,14 +353,17 @@ def standardize_line_report(df):
         "vendas60": ("Vendas60diasRoni", "Vendas 60 dias"),
         "vendas90": ("Vendas90diasRoni", "Vendas 90 dias"),
         "preco_venda": ("Preço Venda", "Preco Venda"),
+        "preco_custo": ("Preço Custo", "Preco Custo", "Custo", "Preço de Custo", "Preco de Custo", "Valor Custo"),
     }
 
     resolved = {}
     missing = []
+    optional_keys = {"preco_venda", "preco_custo"}
     for key, choices in aliases.items():
         col = find_col(df, *choices)
         if col is None:
-            missing.append(choices[0])
+            if key not in optional_keys:
+                missing.append(choices[0])
         else:
             resolved[key] = col
 
@@ -318,8 +401,28 @@ def standardize_line_report(df):
         df[resolved["linha_nome"]].fillna("SEM LINHA").astype(str).str.strip()
     )
 
-    for key in ("estoque", "minimo", "vendas30", "vendas60", "vendas90", "preco_venda"):
+    for key in ("estoque", "minimo", "vendas30", "vendas60", "vendas90"):
         out[key] = num(df[resolved[key]], 0)
+
+    out["preco_custo"] = (
+        num(df[resolved["preco_custo"]], 0)
+        if "preco_custo" in resolved
+        else 0
+    )
+    out["preco_venda"] = (
+        num(df[resolved["preco_venda"]], 0)
+        if "preco_venda" in resolved
+        else out["preco_custo"].copy()
+    )
+    out["preco_venda_origem"] = np.where(
+        "preco_venda" in resolved,
+        "Lista por Marca",
+        np.where(
+            out["preco_custo"] > 0,
+            "Preço de custo usado provisoriamente",
+            "Sem preço",
+        ),
+    )
 
     out["vendas_longo"] = num(df[long_col], 0)
     out["linha"] = np.where(
