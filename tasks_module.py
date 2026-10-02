@@ -316,7 +316,7 @@ def render_tasks():
                 placeholder="Ex.: conferir pendências antes de fechar o pedido.",
             )
             checklist_text = st.text_area(
-                "Checklist (opcional)",
+                "Lista de verificação (opcional)",
                 placeholder=(
                     "Digite um item por linha.\n"
                     "Ex.:\n"
@@ -458,7 +458,7 @@ def render_tasks():
                         1 for item in checklist if item.get("done")
                     )
                     st.markdown(
-                        f"**Checklist {completed_checklist}/{len(checklist)}**"
+                        f"**Lista de verificação {completed_checklist}/{len(checklist)}**"
                     )
                     progress_value = (
                         completed_checklist / len(checklist)
@@ -485,7 +485,7 @@ def render_tasks():
                             if item["id"] == task["id"]:
                                 item["checklist"] = checklist
                                 break
-                        _persist(tasks, "Checklist atualizado e salvo.")
+                        _persist(tasks, "Lista de verificação atualizada e salva.")
                         st.rerun()
 
                 a1, a2, a3, a4 = st.columns([1, 1, 1, 1])
@@ -543,7 +543,7 @@ def render_tasks():
                             value=task.get("description", ""),
                         )
                         new_checklist_text = st.text_area(
-                            "Checklist (um item por linha)",
+                            "Lista de verificação (um item por linha)",
                             value=_checklist_text(task),
                             help=(
                                 "Adicione, remova ou altere os itens. "
@@ -612,7 +612,7 @@ def render_tasks():
                     "Prioridade": task.get("priority", ""),
                     "Categoria": task.get("category", ""),
                     "Status": task.get("status", ""),
-                    "Checklist": " | ".join(
+                    "Lista de verificação": " | ".join(
                         (
                             ("[x] " if item.get("done") else "[ ] ")
                             + str(item.get("text", ""))
@@ -628,7 +628,7 @@ def render_tasks():
         df = pd.DataFrame(export_rows)
         csv = df.to_csv(index=False).encode("utf-8-sig")
         st.download_button(
-            "⬇️ Exportar tarefas (.csv)",
+            "Exportar tarefas (.csv)",
             csv,
             file_name="minhas_tarefas.csv",
             mime="text/csv",
