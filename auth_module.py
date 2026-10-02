@@ -113,7 +113,7 @@ def require_login():
 
     # Não bloqueia o app antes da configuração dos Secrets.
     if not users:
-        st.sidebar.warning("🔓 Login ainda não configurado.")
+        st.sidebar.warning("Login ainda não configurado.")
         return {
             "authenticated": False,
             "configured": False,
@@ -155,7 +155,7 @@ def require_login():
         left, center, right = st.columns([1.3, 1, 1.3])
         with center:
             with st.container(border=True):
-                st.markdown("### 🔐 Entrar")
+                st.markdown("### Entrar")
                 with st.form("nexo_login_form", clear_on_submit=False):
                     username = st.text_input(
                         "Usuário",
@@ -189,7 +189,7 @@ def require_login():
     username = st.session_state.get("nexo_username", "")
     name = st.session_state.get("nexo_user_name", username)
 
-    st.sidebar.caption(f"👤 {name}")
+    st.sidebar.caption(f"{name}")
     if st.sidebar.button("Sair", key="nexo_logout", use_container_width=True):
         _clear_session()
         st.rerun()
