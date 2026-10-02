@@ -1124,7 +1124,7 @@ def _executive_panel_tables(products, period_days):
         .reset_index()
         .rename(
             columns={
-                "status": "Status de Cobertura",
+                "status": "Situação de Cobertura",
                 "Estoque": "Estoque (unid.)",
                 "Faturamento": f"Faturamento {period_days} dias",
                 "Valor_Estoque": "Valor Estoque",
@@ -1138,7 +1138,7 @@ def _executive_panel_tables(products, period_days):
     )
     status_summary = status_summary[
         [
-            "Status de Cobertura",
+            "Situação de Cobertura",
             "Itens",
             "Estoque (unid.)",
             f"Faturamento {period_days} dias",
@@ -1314,7 +1314,7 @@ def formatted_xlsx_bytes(
         criteria_df.to_excel(writer, sheet_name="CRITERIOS", index=False)
 
         wb = writer.book
-        ws = wb.create_sheet("PAINEL", 0)
+        ws = wb.create_sheet("DASHBOARD", 0)
         ws.sheet_view.showGridLines = False
         ws.freeze_panes = "A4"
         ws.page_setup.orientation = "landscape"
@@ -1407,7 +1407,7 @@ def formatted_xlsx_bytes(
 
         # Títulos das duas tabelas centrais.
         ws.merge_cells("A9:F9")
-        ws["A9"] = "STATUS DE COBERTURA"
+        ws["A9"] = "SITUAÇÃO DE COBERTURA"
         ws["A9"].fill = PatternFill("solid", fgColor=NAVY)
         ws["A9"].font = Font(color=WHITE, bold=True)
 
@@ -1418,14 +1418,14 @@ def formatted_xlsx_bytes(
 
         status_panel.to_excel(
             writer,
-            sheet_name="PAINEL",
+            sheet_name="DASHBOARD",
             index=False,
             startrow=9,
             startcol=0,
         )
         abc_panel.to_excel(
             writer,
-            sheet_name="PAINEL",
+            sheet_name="DASHBOARD",
             index=False,
             startrow=9,
             startcol=7,
@@ -1475,7 +1475,7 @@ def formatted_xlsx_bytes(
 
         priorities_panel.to_excel(
             writer,
-            sheet_name="PAINEL",
+            sheet_name="DASHBOARD",
             index=False,
             startrow=priority_title_row,
             startcol=0,
@@ -1729,7 +1729,7 @@ def _github_save_config(criteria):
     if not token:
         return (
             False,
-            "Falta configurar GITHUB_TOKEN nas configurações protegidas do Streamlit para gravar no GitHub.",
+            "Falta configurar GITHUB_TOKEN nos Secrets do Streamlit para gravar no GitHub.",
         )
 
     encoded_path = urllib.parse.quote(_criteria_file(), safe="/")
@@ -1854,7 +1854,7 @@ def render_analise_linha():
 
     if not uploaded:
         st.info(
-            "Envie o relatório bruto para montar o painel gerencial. "
+            "Envie o relatório bruto para montar o dashboard gerencial. "
             "Se for a primeira utilização, baixe o modelo e consulte as instruções."
         )
         return
@@ -1954,7 +1954,7 @@ def render_analise_linha():
             step=1,
             key=widget_keys["abc_period"],
             on_change=auto_apply_criteria,
-            help="Digite qualquer período em dias. O mesmo período será usado para Curva ABC, cobertura e status.",
+            help="Digite qualquer período em dias. O mesmo período será usado para Curva ABC, cobertura e situação.",
         )
         st.caption(
             f"O relatório possui históricos de 30, 60, 90 e {long_days} dias. "
@@ -1978,7 +1978,7 @@ def render_analise_linha():
         )
         st.caption("Curva C = acima do limite da Curva B.")
 
-        with st.expander("Curva A — status por dias", expanded=True):
+        with st.expander("Curva A — situação por dias", expanded=True):
             st.number_input(
                 "RUPTURA: abaixo de (dias)",
                 min_value=0,
@@ -2009,7 +2009,7 @@ def render_analise_linha():
             )
             st.caption("Acima do limite de ALTO = EXCESSO.")
 
-        with st.expander("Curva B — status por dias", expanded=False):
+        with st.expander("Curva B — situação por dias", expanded=False):
             st.number_input(
                 "RUPTURA: abaixo de (dias)",
                 min_value=0,
@@ -2040,7 +2040,7 @@ def render_analise_linha():
             )
             st.caption("Acima do limite de ALTO = EXCESSO.")
 
-        with st.expander("Curva C — status por dias", expanded=False):
+        with st.expander("Curva C — situação por dias", expanded=False):
             st.number_input(
                 "RUPTURA: abaixo de (dias)",
                 min_value=0,
@@ -2086,7 +2086,7 @@ def render_analise_linha():
         if github_token:
             st.caption("Salvamento permanente habilitado.")
         else:
-            st.caption("Para persistir após reiniciar o aplicativo, configure GITHUB_TOKEN nas configurações protegidas do Streamlit.")
+            st.caption("Para persistir após reboot, configure GITHUB_TOKEN nos Secrets do Streamlit.")
 
         feedback = st.session_state.get("line_criteria_feedback", "")
         if feedback:
@@ -2101,7 +2101,7 @@ def render_analise_linha():
     st.info(
         f"**Critérios no menu lateral** — Período único da análise: "
         f"**{period_days} dias** • A até **{criteria['abc_a']:.0f}%** • "
-        f"B até **{criteria['abc_b']:.0f}%**. O mesmo período define Curva ABC, cobertura e status."
+        f"B até **{criteria['abc_b']:.0f}%**. O mesmo período define Curva ABC, cobertura e situação."
     )
 
     products, summary = build_line_analysis(base, period_days, criteria, long_days)
@@ -2143,7 +2143,7 @@ def render_analise_linha():
     left_panel, right_panel = st.columns([1, 1.25])
 
     with left_panel:
-        st.markdown("#### Status de Cobertura")
+        st.markdown("#### Situação de Cobertura")
         st.dataframe(
             status_panel,
             use_container_width=True,
@@ -2341,7 +2341,7 @@ def render_analise_linha():
 
     st.markdown("### Análise por Curva ABC")
     st.caption(
-        "Veja, dentro de cada curva, quantos produtos estão em cada status, "
+        "Veja, dentro de cada curva, quantos produtos estão em cada situação, "
         "o valor de estoque correspondente e quais são os itens."
     )
 
@@ -2414,12 +2414,12 @@ def render_analise_linha():
 
             status_escolhido = st.selectbox(
                 "Mostrar produtos",
-                ["Todos os status"] + abc_status_order,
+                ["Todas as situações"] + abc_status_order,
                 key=f"abc_status_produtos_{curva_nome}",
             )
 
             itens_curva = curva_df.copy()
-            if status_escolhido != "Todos os status":
+            if status_escolhido != "Todas as situações":
                 itens_curva = itens_curva[
                     itens_curva["status"].eq(status_escolhido)
                 ].copy()
@@ -2446,7 +2446,7 @@ def render_analise_linha():
                 f"{len(itens_view)} produto(s) exibido(s)"
                 + (
                     f" em {status_escolhido}"
-                    if status_escolhido != "Todos os status"
+                    if status_escolhido != "Todas as situações"
                     else ""
                 )
                 + "."
@@ -2579,7 +2579,7 @@ def render_analise_linha():
         )
 
     with tab3:
-        st.markdown(f"**Período único:** **{period_days} dias** para Curva ABC, cobertura e status. A até **{criteria['abc_a']:.0f}%**, B até **{criteria['abc_b']:.0f}%**, C acima disso.")
+        st.markdown(f"**Período único:** **{period_days} dias** para Curva ABC, cobertura e situação. A até **{criteria['abc_a']:.0f}%**, B até **{criteria['abc_b']:.0f}%**, C acima disso.")
         st.markdown(
             f"**Curva A:** <{criteria['A_ruptura']} dias RUPTURA; "
             f"{criteria['A_ruptura']}–<{criteria['A_abaixo']} RISCO RUPTURA; "
