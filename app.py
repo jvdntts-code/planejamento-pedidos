@@ -118,13 +118,12 @@ IS_ADMIN = is_legacy_owner()
 MENU_ITEMS = [
     "Início",
     "Planejamento de Pedido",
+    "Meta de Compra",
     "Análise de Linha",
+    "Análise de Pendências",
     "Gestão de Pedidos",
     "Minhas Tarefas",
 ]
-if IS_ADMIN:
-    MENU_ITEMS.insert(2, "Meta de Compra")
-    MENU_ITEMS.insert(4, "Análise de Pendências")
 
 pagina = st.sidebar.radio(
     "Escolha a área",
@@ -174,9 +173,6 @@ if pagina == "Início":
     st.stop()
 
 if pagina == "Meta de Compra":
-    if not IS_ADMIN:
-        st.error("Acesso restrito.")
-        st.stop()
     render_purchase_goal()
     st.stop()
 
@@ -185,9 +181,6 @@ if pagina == "Análise de Linha":
     st.stop()
 
 if pagina == "Análise de Pendências":
-    if not IS_ADMIN:
-        st.error("Acesso restrito.")
-        st.stop()
     render_pendencias()
     st.stop()
 
