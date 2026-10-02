@@ -21,6 +21,7 @@ WHITE = "FFFFFF"
 
 LEGACY_ORDERS_INDEX_PATH = "orders/index.json"
 DEFAULT_DATA_BRANCH = "main"
+DEFAULT_PURCHASE_CYCLE_MONTHS = 2
 
 
 def _orders_index_path():
@@ -29,6 +30,10 @@ def _orders_index_path():
 
 def _orders_pdf_path(order_id):
     return f"{user_storage_prefix()}/orders/pdfs/{order_id}.pdf"
+
+
+def _supplier_cycles_path():
+    return f"{user_storage_prefix()}/preferences/order_supplier_cycles.json"
 
 
 def br_to_float(value):
@@ -493,6 +498,71 @@ def _github_write_bytes(path, data, message):
         return False, f"GitHub respondeu HTTP {exc.code} ao salvar {path}{suffix}."
     except Exception as exc:
         return False, f"Não foi possível salvar {path}: {exc}"
+
+
+def _load_supplier_cycles():
+    cache_key = "gestao_supplier_cycles"
+    if cache_key in st.session_state:
+        return dict(st.session_state[cache_key]), None
+
+    raw, _, error = _github_read_bytes(_supplier_cycles_path())
+    if error:
+        st.session_state[cache_key] = {}
+        return {}, error
+
+    cycles = {}
+    if raw:
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+            source = payload.get("cycles", payload) if isinstance(payload, dict) else {}
+            if isinstance(source, dict):
+                for supplier_key, months in source.items():
+                    try:
+                        value = int(months)
+                    except Exception:
+                        continue
+                    if 1 <= value <= 24:
+                        cycles[str(supplier_key)] = value
+        except Exception as exc:
+            st.session_state[cache_key] = {}
+            return {}, f"Não foi possível interpretar os intervalos por fornecedor: {exc}"
+
+    st.session_state[cache_key] = cycles
+    return dict(cycles), None
+
+
+def _save_supplier_cycles(cycles):
+    cleaned = {}
+    for supplier_key, months in dict(cycles).items():
+        try:
+            value = int(months)
+        except Exception:
+            continue
+        if 1 <= value <= 24 and str(supplier_key).strip():
+            cleaned[str(supplier_key).strip()] = value
+
+    raw = json.dumps(
+        {"version": 1, "cycles": cleaned},
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=True,
+    ).encode("utf-8")
+    ok, error = _github_write_bytes(
+        _supplier_cycles_path(),
+        raw,
+        "Atualiza intervalos de compra por fornecedor",
+    )
+    if ok:
+        st.session_state["gestao_supplier_cycles"] = cleaned
+    return ok, error
+
+
+def _supplier_cycle(cycles, supplier_key):
+    try:
+        value = int(dict(cycles).get(str(supplier_key), DEFAULT_PURCHASE_CYCLE_MONTHS))
+    except Exception:
+        value = DEFAULT_PURCHASE_CYCLE_MONTHS
+    return min(max(value, 1), 24)
 
 
 def _github_delete_path(path):
@@ -1347,25 +1417,75 @@ def render_gestao_pedidos():
     library = _ensure_order_library()
     persistence_ready, persistence_message = _data_repo_status()
 
+    supplier_cycles, cycles_error = _load_supplier_cycles()
+
     with st.sidebar:
         st.markdown("---")
         st.markdown("### Gestão de Pedidos")
-        ciclo_meses = st.number_input(
-            "Intervalo entre compras (meses)",
-            min_value=1,
-            max_value=24,
-            value=2,
-            step=1,
-            key="gestao_ciclo_meses",
-            help=(
-                "Define quantos meses após a data do pedido o NEXO deve indicar "
-                "como próxima compra."
-            ),
-        )
-        st.caption(
-            f"Próxima compra será projetada {int(ciclo_meses)} "
-            f"{'mês' if int(ciclo_meses) == 1 else 'meses'} após cada pedido."
-        )
+
+        supplier_catalog = {}
+        for order_data in library.values():
+            header = order_data.get("header", {})
+            supplier_key = _supplier_key(header)
+            if not supplier_key:
+                continue
+            supplier_name = str(header.get("Fornecedor") or supplier_key).strip()
+            supplier_catalog[supplier_key] = supplier_name
+
+        with st.expander("Intervalos de compra por fornecedor", expanded=False):
+            if supplier_catalog:
+                supplier_keys = sorted(
+                    supplier_catalog,
+                    key=lambda key: supplier_catalog[key].casefold(),
+                )
+                selected_cycle_supplier = st.selectbox(
+                    "Fornecedor",
+                    options=supplier_keys,
+                    format_func=lambda key: supplier_catalog.get(key, key),
+                    key="gestao_ciclo_fornecedor",
+                )
+                current_cycle = _supplier_cycle(
+                    supplier_cycles,
+                    selected_cycle_supplier,
+                )
+                cycle_value = st.number_input(
+                    "Intervalo entre compras (meses)",
+                    min_value=1,
+                    max_value=24,
+                    value=int(current_cycle),
+                    step=1,
+                    key=f"gestao_ciclo_meses_{selected_cycle_supplier}",
+                    help=(
+                        "Define quantos meses após o último pedido deste fornecedor "
+                        "o NEXO deve indicar a próxima compra."
+                    ),
+                )
+                st.caption(
+                    f"{supplier_catalog.get(selected_cycle_supplier, selected_cycle_supplier)}: "
+                    f"{int(cycle_value)} "
+                    f"{'mês' if int(cycle_value) == 1 else 'meses'} entre compras."
+                )
+                if st.button(
+                    "Salvar intervalo do fornecedor",
+                    use_container_width=True,
+                    key="gestao_salvar_ciclo_fornecedor",
+                ):
+                    updated_cycles = dict(supplier_cycles)
+                    updated_cycles[selected_cycle_supplier] = int(cycle_value)
+                    ok, error = _save_supplier_cycles(updated_cycles)
+                    if ok:
+                        st.success("Intervalo salvo.")
+                        st.rerun()
+                    else:
+                        st.error(error or "Não foi possível salvar o intervalo.")
+            else:
+                st.caption(
+                    "Anexe pelo menos um pedido para cadastrar o intervalo de compra do fornecedor."
+                )
+
+        if cycles_error:
+            st.warning(cycles_error)
+
         if persistence_ready:
             st.success("Pedidos permanentes habilitados")
         else:
@@ -1382,12 +1502,20 @@ def render_gestao_pedidos():
 
     selected_supplier = st.session_state.get("gestao_fornecedor_selecionado")
     if selected_supplier:
-        _render_supplier_history(library, selected_supplier, ciclo_meses)
+        supplier_cycle = _supplier_cycle(supplier_cycles, selected_supplier)
+        _render_supplier_history(library, selected_supplier, supplier_cycle)
         return
 
     selected_id = st.session_state.get("gestao_pedido_selecionado")
     if selected_id and selected_id in library:
-        _render_order_detail(library[selected_id], ciclo_meses, library)
+        selected_supplier_key = _supplier_key(
+            library[selected_id].get("header", {})
+        )
+        supplier_cycle = _supplier_cycle(
+            supplier_cycles,
+            selected_supplier_key,
+        )
+        _render_order_detail(library[selected_id], supplier_cycle, library)
         return
     elif selected_id:
         st.session_state["gestao_pedido_selecionado"] = None
@@ -1573,13 +1701,20 @@ def render_gestao_pedidos():
                             rec["fornecedor_key"],
                         )
                         if supplier_orders and supplier_orders[-1]["id"] == rec["id"]:
+                            supplier_cycle = _supplier_cycle(
+                                supplier_cycles,
+                                rec["fornecedor_key"],
+                            )
                             next_date, alert_text, _ = _purchase_alert(
                                 rec["data"],
-                                int(ciclo_meses),
+                                int(supplier_cycle),
                             )
                             if next_date:
                                 st.caption(
-                                    f"Próxima: {next_date.strftime('%d/%m/%Y')} • {alert_text}"
+                                    f"Próxima: {next_date.strftime('%d/%m/%Y')} • "
+                                    f"{supplier_cycle} "
+                                    f"{'mês' if supplier_cycle == 1 else 'meses'} • "
+                                    f"{alert_text}"
                                 )
 
                     with col_actions:
