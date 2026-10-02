@@ -12,8 +12,11 @@ from pendencias_module import render_pendencias
 from orders_module import render_gestao_pedidos
 from tasks_module import render_tasks
 from purchase_goal_module import render_purchase_goal
+from auth_module import require_login
 
 st.set_page_config(page_title="NEXO | by JVN", page_icon="◆", layout="wide")
+
+AUTH_STATE = require_login()
 
 st.markdown("""
 <style>
