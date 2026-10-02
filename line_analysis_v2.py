@@ -1357,14 +1357,7 @@ def formatted_xlsx_bytes(
     criteria,
 ):
     output = io.BytesIO()
-    summary_export = _friendly_summary(summary, long_days)
     products_export = _friendly_products(products, long_days, period_days)
-    excess_export = products_export[
-        products_export["Status"].isin(["ALTO", "EXCESSO"])
-    ].copy()
-    stopped_export = products_export[
-        products_export["Status"].eq("SEM VENDA - ESTOQUE PARADO")
-    ].copy()
 
     total_revenue = float(products["faturamento_periodo"].sum())
     stock_value = float(products["valor_estoque"].sum())
@@ -1393,11 +1386,7 @@ def formatted_xlsx_bytes(
     )
 
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        summary_export.to_excel(writer, sheet_name="RESUMO LINHAS", index=False, startrow=3)
         products_export.to_excel(writer, sheet_name="PRODUTOS", index=False, startrow=3)
-        excess_export.to_excel(writer, sheet_name="ALTO EXCESSO", index=False, startrow=3)
-        stopped_export.to_excel(writer, sheet_name="ESTOQUE PARADO", index=False, startrow=3)
-        raw.to_excel(writer, sheet_name="DADOS BRUTOS", index=False)
         criteria_df = pd.DataFrame({
             "Critério": [
                 "Período único da análise", "Curva A até", "Curva B até",
@@ -1629,43 +1618,19 @@ def formatted_xlsx_bytes(
 
         ws.freeze_panes = None
 
-        # Demais abas.
-        for sheet_name in ("RESUMO LINHAS", "PRODUTOS", "ALTO EXCESSO", "ESTOQUE PARADO"):
-            s = wb[sheet_name]
-            s.sheet_view.showGridLines = False
-            s.merge_cells(start_row=1, start_column=1, end_row=1, end_column=s.max_column)
-            s["A1"] = (
-                "RESUMO GERENCIAL POR LINHA"
-                if sheet_name == "RESUMO LINHAS"
-                else sheet_name
-            )
-            s["A1"].fill = PatternFill("solid", fgColor=NAVY)
-            s["A1"].font = Font(color=WHITE, bold=True, size=16)
-            s["A1"].alignment = Alignment(horizontal="center")
-            s.merge_cells(start_row=2, start_column=1, end_row=2, end_column=s.max_column)
-            s["A2"] = f"{analysis_name} | Período principal: {period_days} dias"
-            s["A2"].fill = PatternFill("solid", fgColor=LIGHT_BLUE)
-            s["A2"].font = Font(color=NAVY, italic=True)
-            s["A2"].alignment = Alignment(horizontal="center")
-
-        _format_sheet(
-            wb["RESUMO LINHAS"],
-            header_row=4,
-            table_name="TabelaResumoLinhas",
-            currency_headers={
-                "Faturamento 90d",
-                f"Faturamento {long_days}d",
-                "Valor Estoque",
-                "Valor Alto/Excesso",
-                "Valor Parado",
-            },
-            percent_headers={
-                "% SKUs",
-                "% Fat. 90d",
-                f"% Fat. {long_days}d",
-                "% Estoque",
-            },
-        )
+        # Aba detalhada de produtos.
+        s = wb["PRODUTOS"]
+        s.sheet_view.showGridLines = False
+        s.merge_cells(start_row=1, start_column=1, end_row=1, end_column=s.max_column)
+        s["A1"] = "PRODUTOS"
+        s["A1"].fill = PatternFill("solid", fgColor=NAVY)
+        s["A1"].font = Font(color=WHITE, bold=True, size=16)
+        s["A1"].alignment = Alignment(horizontal="center")
+        s.merge_cells(start_row=2, start_column=1, end_row=2, end_column=s.max_column)
+        s["A2"] = f"{analysis_name} | Período principal: {period_days} dias"
+        s["A2"].fill = PatternFill("solid", fgColor=LIGHT_BLUE)
+        s["A2"].font = Font(color=NAVY, italic=True)
+        s["A2"].alignment = Alignment(horizontal="center")
 
         _format_sheet(
             wb["PRODUTOS"],
@@ -1682,43 +1647,6 @@ def formatted_xlsx_bytes(
             curve_header="Curva ABC",
         )
 
-        _format_sheet(
-            wb["ALTO EXCESSO"],
-            header_row=4,
-            table_name="TabelaAltoExcesso",
-            currency_headers={
-                "Preço Venda",
-                f"Faturamento {period_days}d",
-                "Valor Estoque",
-            },
-            percent_headers={"Participação Acumulada"},
-            decimal_headers={"Cobertura (dias)"},
-            status_header="Status",
-            curve_header="Curva ABC",
-        )
-
-        _format_sheet(
-            wb["ESTOQUE PARADO"],
-            header_row=4,
-            table_name="TabelaEstoqueParado",
-            currency_headers={
-                "Preço Venda",
-                f"Faturamento {period_days}d",
-                "Valor Estoque",
-            },
-            percent_headers={"Participação Acumulada"},
-            decimal_headers={"Cobertura (dias)"},
-            status_header="Status",
-            curve_header="Curva ABC",
-        )
-
-        raw_ws = wb["DADOS BRUTOS"]
-        raw_ws.sheet_view.showGridLines = False
-        raw_ws.freeze_panes = None
-        _style_header(raw_ws, 1)
-        _auto_width(raw_ws)
-        raw_ws.auto_filter.ref = raw_ws.dimensions
-
         crit_ws = wb["CRITERIOS"]
         crit_ws.sheet_view.showGridLines = False
         crit_ws.freeze_panes = None
@@ -1726,28 +1654,6 @@ def formatted_xlsx_bytes(
         _auto_width(crit_ws, min_width=18, max_width=38)
         crit_ws.column_dimensions["A"].width = 34
         crit_ws.column_dimensions["B"].width = 22
-
-        # Escala visual na tabela gerencial.
-        resumo_ws = wb["RESUMO LINHAS"]
-        header_map = {
-            resumo_ws.cell(4, c).value: c
-            for c in range(1, resumo_ws.max_column + 1)
-        }
-        if "Valor Alto/Excesso" in header_map and resumo_ws.max_row >= 5:
-            col = get_column_letter(header_map["Valor Alto/Excesso"])
-            cell_range = f"{col}5:{col}{resumo_ws.max_row}"
-            resumo_ws.conditional_formatting.add(
-                cell_range,
-                ColorScaleRule(
-                    start_type="min",
-                    start_color="E2F0D9",
-                    mid_type="percentile",
-                    mid_value=50,
-                    mid_color="FFF2CC",
-                    end_type="max",
-                    end_color="F4CCCC",
-                ),
-            )
 
     return output.getvalue()
 
