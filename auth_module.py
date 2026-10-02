@@ -379,17 +379,19 @@ def _reset_password(username, recovery_code, new_password):
 
     key, user = _find_registry_user(registry, username)
 
-    admin_code = str(_secret("NEXO_ADMIN_CODE", "")).strip()
     supplied = str(recovery_code or "").strip()
-    admin_code_ok = bool(admin_code) and hmac.compare_digest(supplied, admin_code)
 
     if user is None:
         legacy_key, legacy_user = _find_legacy_user(_load_legacy_users(), username)
-        if legacy_user is None or not admin_code_ok:
+        if legacy_user is None:
             return False, (
                 "Conta não encontrada ou ainda não migrada. "
                 "Entre uma vez com a senha atual ou procure o administrador."
             )
+        return False, (
+            "Essa conta ainda usa o login antigo. "
+            "Entre uma vez com a senha atual para concluir a migração."
+        )
 
         recovery_new = _new_recovery_code()
         password_salt, password_hash = _password_hash(new_password)
@@ -427,7 +429,7 @@ def _reset_password(username, recovery_code, new_password):
         except Exception:
             admin_release_ok = False
 
-    if not recovery_ok and not admin_release_ok and not admin_code_ok:
+    if not recovery_ok and not admin_release_ok:
         return False, (
             "Código de recuperação inválido. "
             "Se você perdeu o código, peça ao administrador para liberar a redefinição."
