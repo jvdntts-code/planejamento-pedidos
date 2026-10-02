@@ -1314,7 +1314,7 @@ def formatted_xlsx_bytes(
         criteria_df.to_excel(writer, sheet_name="CRITERIOS", index=False)
 
         wb = writer.book
-        ws = wb.create_sheet("DASHBOARD", 0)
+        ws = wb.create_sheet("PAINEL", 0)
         ws.sheet_view.showGridLines = False
         ws.freeze_panes = "A4"
         ws.page_setup.orientation = "landscape"
@@ -1418,14 +1418,14 @@ def formatted_xlsx_bytes(
 
         status_panel.to_excel(
             writer,
-            sheet_name="DASHBOARD",
+            sheet_name="PAINEL",
             index=False,
             startrow=9,
             startcol=0,
         )
         abc_panel.to_excel(
             writer,
-            sheet_name="DASHBOARD",
+            sheet_name="PAINEL",
             index=False,
             startrow=9,
             startcol=7,
@@ -1475,7 +1475,7 @@ def formatted_xlsx_bytes(
 
         priorities_panel.to_excel(
             writer,
-            sheet_name="DASHBOARD",
+            sheet_name="PAINEL",
             index=False,
             startrow=priority_title_row,
             startcol=0,
@@ -1729,7 +1729,7 @@ def _github_save_config(criteria):
     if not token:
         return (
             False,
-            "Falta configurar GITHUB_TOKEN nos Secrets do Streamlit para gravar no GitHub.",
+            "Falta configurar GITHUB_TOKEN nas configurações protegidas do Streamlit para gravar no GitHub.",
         )
 
     encoded_path = urllib.parse.quote(_criteria_file(), safe="/")
@@ -1854,7 +1854,7 @@ def render_analise_linha():
 
     if not uploaded:
         st.info(
-            "Envie o relatório bruto para montar o dashboard gerencial. "
+            "Envie o relatório bruto para montar o painel gerencial. "
             "Se for a primeira utilização, baixe o modelo e consulte as instruções."
         )
         return
@@ -2086,7 +2086,7 @@ def render_analise_linha():
         if github_token:
             st.caption("Salvamento permanente habilitado.")
         else:
-            st.caption("ℹ️ Para persistir após reboot, configure GITHUB_TOKEN nos Secrets do Streamlit.")
+            st.caption("Para persistir após reiniciar o aplicativo, configure GITHUB_TOKEN nas configurações protegidas do Streamlit.")
 
         feedback = st.session_state.get("line_criteria_feedback", "")
         if feedback:
