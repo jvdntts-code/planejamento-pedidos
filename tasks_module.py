@@ -9,10 +9,16 @@ from datetime import date, datetime
 import pandas as pd
 import streamlit as st
 
+from auth_module import current_username, is_legacy_owner, user_storage_prefix
 
-TASKS_FILE = "personal_tasks.json"
+
+LEGACY_TASKS_FILE = "personal_tasks.json"
 DEFAULT_GITHUB_REPO = "jvdntts-code/planejamento-pedidos"
 DEFAULT_GITHUB_BRANCH = "main"
+
+
+def _tasks_file():
+    return f"{user_storage_prefix()}/tasks/personal_tasks.json"
 
 PRIORITIES = ["Alta", "Média", "Baixa"]
 CATEGORIES = ["Compras", "Análise", "Fornecedor", "Pessoal", "Outro"]
@@ -27,10 +33,48 @@ def _secret(name, default=""):
 
 
 def _settings():
+    repo = str(
+        _secret(
+            "GITHUB_DATA_REPO",
+            _secret("GITHUB_REPO", DEFAULT_GITHUB_REPO),
+        )
+    )
+    branch = str(
+        _secret(
+            "GITHUB_DATA_BRANCH",
+            _secret("GITHUB_BRANCH", DEFAULT_GITHUB_BRANCH),
+        )
+    )
+    token = str(_secret("GITHUB_TOKEN", ""))
+    return repo, branch, token
+
+
+def _legacy_settings():
     repo = str(_secret("GITHUB_REPO", DEFAULT_GITHUB_REPO))
     branch = str(_secret("GITHUB_BRANCH", DEFAULT_GITHUB_BRANCH))
     token = str(_secret("GITHUB_TOKEN", ""))
     return repo, branch, token
+
+
+def _read_tasks_from(repo, branch, token, file_path):
+    path = urllib.parse.quote(file_path, safe="/")
+    url = (
+        f"https://api.github.com/repos/{repo}/contents/{path}"
+        f"?ref={urllib.parse.quote(branch, safe='')}"
+    )
+    request = urllib.request.Request(url, headers=_headers(token), method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        content = base64.b64decode(payload["content"]).decode("utf-8")
+        data = json.loads(content)
+        return (data if isinstance(data, list) else []), None, True
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return [], None, False
+        return [], f"Não foi possível carregar as tarefas (HTTP {exc.code}).", False
+    except Exception as exc:
+        return [], f"Não foi possível carregar as tarefas: {exc}", False
 
 
 def _headers(token=""):
@@ -46,24 +90,36 @@ def _headers(token=""):
 
 def _read_tasks():
     repo, branch, token = _settings()
-    path = urllib.parse.quote(TASKS_FILE, safe="/")
-    url = (
-        f"https://api.github.com/repos/{repo}/contents/{path}"
-        f"?ref={urllib.parse.quote(branch, safe='')}"
+    tasks, error, found = _read_tasks_from(
+        repo,
+        branch,
+        token,
+        _tasks_file(),
     )
-    request = urllib.request.Request(url, headers=_headers(token), method="GET")
-    try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-        content = base64.b64decode(payload["content"]).decode("utf-8")
-        data = json.loads(content)
-        return data if isinstance(data, list) else [], None
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return [], None
-        return [], f"Não foi possível carregar as tarefas (HTTP {exc.code})."
-    except Exception as exc:
-        return [], f"Não foi possível carregar as tarefas: {exc}"
+    if error or found:
+        return tasks, error
+
+    # Migração transparente dos dados antigos para o primeiro/atual proprietário.
+    if is_legacy_owner():
+        legacy_repo, legacy_branch, legacy_token = _legacy_settings()
+        legacy_tasks, legacy_error, legacy_found = _read_tasks_from(
+            legacy_repo,
+            legacy_branch,
+            legacy_token,
+            LEGACY_TASKS_FILE,
+        )
+        if legacy_error:
+            return [], legacy_error
+        if legacy_found:
+            ok, message = _save_tasks(legacy_tasks)
+            if ok:
+                return legacy_tasks, None
+            return legacy_tasks, (
+                "Tarefas antigas carregadas, mas ainda não foi possível migrá-las: "
+                + message
+            )
+
+    return [], None
 
 
 def _save_tasks(tasks):
@@ -71,7 +127,7 @@ def _save_tasks(tasks):
     if not token:
         return False, "Sem GITHUB_TOKEN: as tarefas ficam apenas nesta sessão."
 
-    path = urllib.parse.quote(TASKS_FILE, safe="/")
+    path = urllib.parse.quote(_tasks_file(), safe="/")
     url = f"https://api.github.com/repos/{repo}/contents/{path}"
 
     sha = None
