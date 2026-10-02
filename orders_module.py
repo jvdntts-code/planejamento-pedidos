@@ -10,6 +10,7 @@ from datetime import date, datetime
 
 import pandas as pd
 import streamlit as st
+from auth_module import is_legacy_owner, user_storage_prefix
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from pypdf import PdfReader
@@ -18,8 +19,16 @@ from pypdf import PdfReader
 NAVY = "17365D"
 WHITE = "FFFFFF"
 
-ORDERS_INDEX_PATH = "orders/index.json"
+LEGACY_ORDERS_INDEX_PATH = "orders/index.json"
 DEFAULT_DATA_BRANCH = "main"
+
+
+def _orders_index_path():
+    return f"{user_storage_prefix()}/orders/index.json"
+
+
+def _orders_pdf_path(order_id):
+    return f"{user_storage_prefix()}/orders/pdfs/{order_id}.pdf"
 
 
 def br_to_float(value):
@@ -554,7 +563,7 @@ def _serialize_order(order_data):
         "filename": order_data.get("filename", ""),
         "pdf_path": order_data.get(
             "pdf_path",
-            f"orders/pdfs/{order_data['id']}.pdf",
+            _orders_pdf_path(order_data["id"]),
         ),
         "header": _json_header(order_data.get("header", {})),
         "items": items_json,
@@ -573,7 +582,7 @@ def _deserialize_order(payload):
         "pdf_path": str(
             payload.get(
                 "pdf_path",
-                f"orders/pdfs/{payload.get('id', '')}.pdf",
+                _orders_pdf_path(payload.get("id", "")),
             )
         ),
         "bytes": None,
@@ -584,12 +593,12 @@ def _deserialize_order(payload):
     }
 
 
-def _load_persistent_orders():
-    raw, _, error = _github_read_bytes(ORDERS_INDEX_PATH)
+def _load_orders_from_path(index_path):
+    raw, _, error = _github_read_bytes(index_path)
     if error:
-        return {}, error
+        return {}, error, False
     if raw is None:
-        return {}, None
+        return {}, None, False
 
     try:
         payload = json.loads(raw.decode("utf-8"))
@@ -598,9 +607,33 @@ def _load_persistent_orders():
             order_data = _deserialize_order(saved)
             if order_data["id"]:
                 library[order_data["id"]] = order_data
-        return library, None
+        return library, None, True
     except Exception as exc:
-        return {}, f"Não foi possível interpretar o histórico salvo: {exc}"
+        return {}, f"Não foi possível interpretar o histórico salvo: {exc}", False
+
+
+def _load_persistent_orders():
+    library, error, found = _load_orders_from_path(_orders_index_path())
+    if error or found:
+        return library, error
+
+    # Migra o histórico antigo somente para o usuário proprietário legado.
+    if is_legacy_owner():
+        legacy_library, legacy_error, legacy_found = _load_orders_from_path(
+            LEGACY_ORDERS_INDEX_PATH
+        )
+        if legacy_error:
+            return {}, legacy_error
+        if legacy_found:
+            ok, migrate_error = _save_persistent_index(legacy_library)
+            if ok:
+                return legacy_library, None
+            return legacy_library, (
+                "Histórico antigo carregado, mas ainda não foi possível migrá-lo: "
+                + str(migrate_error or "")
+            )
+
+    return {}, None
 
 
 def _save_persistent_index(library):
@@ -622,7 +655,7 @@ def _save_persistent_index(library):
         sort_keys=True,
     ).encode("utf-8")
     return _github_write_bytes(
-        ORDERS_INDEX_PATH,
+        _orders_index_path(),
         raw,
         "Atualiza histórico de pedidos do NEXO",
     )
@@ -678,7 +711,7 @@ def _add_order_attachments(uploaded_files):
 
         try:
             header, items, not_parsed, extracted_text = parse_order_pdf(raw)
-            pdf_path = f"orders/pdfs/{attachment_id}.pdf"
+            pdf_path = _orders_pdf_path(attachment_id)
             library[attachment_id] = {
                 "id": attachment_id,
                 "filename": uploaded.name,
