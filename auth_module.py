@@ -727,24 +727,6 @@ def _clear_session():
         st.session_state.pop(key, None)
 
 
-def _clear_auth_form_state():
-    keys = [
-        "login_username",
-        "login_password",
-        "signup_name",
-        "signup_username",
-        "signup_password",
-        "signup_confirm",
-        "signup_access_code",
-        "reset_username",
-        "reset_recovery",
-        "reset_password",
-        "reset_confirm",
-    ]
-    for key in keys:
-        st.session_state.pop(key, None)
-
-
 def _render_recovery_notice():
     recovery_code = st.session_state.get("nexo_new_recovery_code")
     if recovery_code:
@@ -837,11 +819,10 @@ def require_login():
                         )
 
                     if submitted:
-                        refreshed_users, _ = _load_users()
                         valid, selected_user, user = _valid_login(
                             username,
                             password,
-                            refreshed_users,
+                            users,
                         )
                         if valid:
                             recovery_code = None
@@ -858,7 +839,6 @@ def require_login():
                             selected_name = str(
                                 user.get("name", selected_user)
                             ).strip() or selected_user
-                            _clear_auth_form_state()
                             st.session_state["nexo_authenticated"] = True
                             st.session_state["nexo_username"] = selected_user
                             st.session_state["nexo_user_name"] = selected_name
@@ -941,7 +921,6 @@ def require_login():
                             if not ok:
                                 st.error(error)
                             else:
-                                _clear_auth_form_state()
                                 st.session_state["nexo_authenticated"] = True
                                 st.session_state["nexo_username"] = created_user
                                 st.session_state["nexo_user_name"] = (
