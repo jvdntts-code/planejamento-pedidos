@@ -727,6 +727,24 @@ def _clear_session():
         st.session_state.pop(key, None)
 
 
+def _clear_auth_form_state():
+    keys = [
+        "login_username",
+        "login_password",
+        "signup_name",
+        "signup_username",
+        "signup_password",
+        "signup_confirm",
+        "signup_access_code",
+        "reset_username",
+        "reset_recovery",
+        "reset_password",
+        "reset_confirm",
+    ]
+    for key in keys:
+        st.session_state.pop(key, None)
+
+
 def _render_recovery_notice():
     recovery_code = st.session_state.get("nexo_new_recovery_code")
     if recovery_code:
@@ -746,14 +764,24 @@ def _render_recovery_notice():
 
 
 def require_login():
-    users, registry_error = _load_users()
-
     if "nexo_authenticated" not in st.session_state:
         st.session_state["nexo_authenticated"] = False
     if "nexo_username" not in st.session_state:
         st.session_state["nexo_username"] = ""
     if "nexo_user_name" not in st.session_state:
         st.session_state["nexo_user_name"] = ""
+
+    if st.session_state["nexo_authenticated"]:
+        username = st.session_state.get("nexo_username", "")
+        name = st.session_state.get("nexo_user_name", username)
+        return {
+            "authenticated": True,
+            "configured": True,
+            "username": username,
+            "name": name,
+        }
+
+    users, registry_error = _load_users()
 
     if not st.session_state["nexo_authenticated"]:
         st.markdown(
@@ -830,7 +858,7 @@ def require_login():
                             selected_name = str(
                                 user.get("name", selected_user)
                             ).strip() or selected_user
-                            _clear_session()
+                            _clear_auth_form_state()
                             st.session_state["nexo_authenticated"] = True
                             st.session_state["nexo_username"] = selected_user
                             st.session_state["nexo_user_name"] = selected_name
@@ -913,7 +941,7 @@ def require_login():
                             if not ok:
                                 st.error(error)
                             else:
-                                _clear_session()
+                                _clear_auth_form_state()
                                 st.session_state["nexo_authenticated"] = True
                                 st.session_state["nexo_username"] = created_user
                                 st.session_state["nexo_user_name"] = (
@@ -996,16 +1024,6 @@ def require_login():
                     st.caption(registry_error)
 
         st.stop()
-
-    username = st.session_state.get("nexo_username", "")
-    name = st.session_state.get("nexo_user_name", username)
-
-    return {
-        "authenticated": True,
-        "configured": True,
-        "username": username,
-        "name": name,
-    }
 
 
 def render_sidebar_account_controls():
