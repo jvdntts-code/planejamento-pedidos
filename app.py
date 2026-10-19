@@ -120,8 +120,9 @@ MENU_ITEMS = [
     "Análise de Linha",
     "Análise de Pendências",
     "Gestão de Pedidos",
-    "Minhas Tarefas",
 ]
+if IS_ADMIN:
+    MENU_ITEMS.append("Minhas Tarefas")
 
 pagina = st.sidebar.radio(
     "Escolha a área",
@@ -140,13 +141,20 @@ def render_inicio():
         unsafe_allow_html=True,
     )
     st.subheader("Sua central de trabalho")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.info("**Planejamento de Pedido**\n\nCalcule necessidades e gere pedidos com memória de cálculo.")
-    with c2:
-        st.info("**Análise de Linha**\n\nAvalie Curva ABC, cobertura, ruptura, risco, alto e excesso.")
-    with c3:
-        st.info("**Minhas Tarefas**\n\nOrganize pendências pessoais, prazos e prioridades.")
+    if IS_ADMIN:
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.info("**Planejamento de Pedido**\n\nCalcule necessidades e gere pedidos com memória de cálculo.")
+        with c2:
+            st.info("**Análise de Linha**\n\nAvalie Curva ABC, cobertura, ruptura, risco, alto e excesso.")
+        with c3:
+            st.info("**Minhas Tarefas**\n\nOrganize trabalho, faculdade e vida pessoal com prazos e lembretes.")
+    else:
+        c1, c2 = st.columns(2)
+        with c1:
+            st.info("**Planejamento de Pedido**\n\nCalcule necessidades e gere pedidos com memória de cálculo.")
+        with c2:
+            st.info("**Análise de Linha**\n\nAvalie Curva ABC, cobertura, ruptura, risco, alto e excesso.")
 
     st.markdown("### Próximos módulos")
     p1, p2 = st.columns(2)
@@ -184,7 +192,7 @@ if pagina == "Gestão de Pedidos":
     render_sidebar_account_controls()
     st.stop()
 
-if pagina == "Minhas Tarefas":
+if pagina == "Minhas Tarefas" and IS_ADMIN:
     render_tasks()
     render_sidebar_account_controls()
     st.stop()
