@@ -833,8 +833,14 @@ def require_login():
                                     password,
                                 )
                                 if migration_error:
-                                    st.error(migration_error)
-                                    st.stop()
+                                    # Não bloqueia o acesso quando o cadastro remoto
+                                    # estiver temporariamente indisponível. O usuário
+                                    # legado continua autenticando pelos Secrets e a
+                                    # migração será tentada novamente em outro acesso.
+                                    st.session_state["nexo_registry_warning"] = (
+                                        migration_error
+                                    )
+                                    recovery_code = None
 
                             selected_name = str(
                                 user.get("name", selected_user)
@@ -1011,6 +1017,15 @@ def render_sidebar_account_controls():
 
     username = st.session_state.get("nexo_username", "")
     name = st.session_state.get("nexo_user_name", username)
+
+    registry_warning = str(
+        st.session_state.get("nexo_registry_warning", "") or ""
+    ).strip()
+    if registry_warning:
+        st.sidebar.warning(
+            "Cadastro remoto temporariamente indisponível. "
+            "O acesso foi mantido pelo login de segurança."
+        )
 
     st.sidebar.markdown(
         '<div class="nexo-sidebar-spacer"></div>',
