@@ -708,18 +708,72 @@ def _comparar(atual, anterior, chave, total_atual, total_anterior):
 
 def _exportar(resumo, produtos, lojas, periodo_atual, periodo_base):
     arquivo = io.BytesIO()
+    formato_moeda = '"R$" #,##0.00;[Red]-"R$" #,##0.00'
+    formato_percentual = '0.00"%"'
+    formato_pontos = '0.00" p.p."'
+    formato_inteiro = '#,##0;[Red]-#,##0'
+    colunas_moeda = {
+        "revenue", "revenue_atual", "revenue_base", "delta_revenue",
+        "Faturamento", "Faturamento atual", "Faturamento comparação", "Variação R$",
+    }
+    colunas_percentuais = {
+        "delta_pct", "share_atual", "share_base", "Variação %",
+        "Share atual %", "Variação %",
+    }
+    colunas_pontos = {"share_delta", "Variação share (p.p.)"}
+    colunas_inteiras = {
+        "quantity", "quantity_atual", "quantity_base", "year", "month",
+        "Unidades", "Unidades atuais", "Unidades comparação", "registros",
+    }
+
     with pd.ExcelWriter(arquivo, engine="openpyxl") as escritor:
         pd.DataFrame(resumo).to_excel(escritor, sheet_name="Resumo", index=False)
         produtos.to_excel(escritor, sheet_name="Produtos", index=False)
         lojas.to_excel(escritor, sheet_name="Lojas", index=False)
         periodo_atual.to_excel(escritor, sheet_name="Base período", index=False)
         periodo_base.to_excel(escritor, sheet_name="Base comparação", index=False)
+
         for planilha in escritor.book.worksheets:
             planilha.freeze_panes = "A2"
             planilha.auto_filter.ref = planilha.dimensions
+            cabecalhos = {
+                celula.column: str(celula.value or "")
+                for celula in planilha[1]
+            }
+
+            for linha in planilha.iter_rows(min_row=2):
+                indicador = str(linha[0].value or "") if planilha.title == "Resumo" else ""
+                for celula in linha:
+                    if not isinstance(celula.value, (int, float)):
+                        continue
+                    cabecalho = cabecalhos.get(celula.column, "")
+                    if planilha.title == "Resumo":
+                        celula.number_format = (
+                            formato_moeda
+                            if indicador in {"Faturamento", "Valor médio por unidade"}
+                            else formato_inteiro
+                        )
+                    elif cabecalho in colunas_moeda:
+                        celula.number_format = formato_moeda
+                    elif cabecalho in colunas_percentuais:
+                        celula.number_format = formato_percentual
+                    elif cabecalho in colunas_pontos:
+                        celula.number_format = formato_pontos
+                    elif cabecalho in colunas_inteiras or cabecalho in {"records", "skus", "stores"}:
+                        celula.number_format = formato_inteiro
+
             for coluna in planilha.columns:
+                cabecalho = str(coluna[0].value or "")
                 largura = max(len(str(celula.value or "")) for celula in coluna[:250]) + 2
-                planilha.column_dimensions[coluna[0].column_letter].width = min(max(largura, 11), 38)
+                if cabecalho in {"description", "Descrição"}:
+                    largura = max(largura, 55)
+                    for celula in coluna[1:]:
+                        celula.alignment = celula.alignment.copy(wrap_text=True, vertical="top")
+                elif cabecalho in {"store", "Loja"}:
+                    largura = max(largura, 22)
+                elif cabecalho in {"product_code", "Código"}:
+                    largura = max(largura, 18)
+                planilha.column_dimensions[coluna[0].column_letter].width = min(max(largura, 11), 65)
     return arquivo.getvalue()
 
 
