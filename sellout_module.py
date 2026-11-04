@@ -8,8 +8,10 @@ import urllib.parse
 import urllib.request
 import unicodedata
 
+import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
+from matplotlib.ticker import FuncFormatter
 
 from auth_module import current_username, user_storage_prefix
 
@@ -460,10 +462,191 @@ def _variacao(atual, anterior):
     return None if anterior == 0 else (atual / anterior - 1) * 100
 
 
+def _numero_br(valor, casas=0, sinal=False):
+    if valor is None:
+        return "—"
+    try:
+        numero = float(valor)
+    except (TypeError, ValueError):
+        return "—"
+    if pd.isna(numero):
+        return "—"
+    prefixo = "+" if sinal and numero > 0 else ""
+    formatado = f"{abs(numero):,.{casas}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"{'-' if numero < 0 else ''}{prefixo}{formatado}"
+
+
 def _moeda(valor):
-    valor = float(valor or 0)
-    formatado = f"{abs(valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    return f"-R$ {formatado}" if valor < 0 else f"R$ {formatado}"
+    if valor is None:
+        return "—"
+    try:
+        numero = float(valor)
+    except (TypeError, ValueError):
+        return "—"
+    if pd.isna(numero):
+        return "—"
+    sinal = "-R$ " if numero < 0 else "R$ "
+    return sinal + _numero_br(abs(numero), 2)
+
+
+def _percentual(valor, sinal=False):
+    numero = _numero_br(valor, 2, sinal=sinal)
+    return "—" if numero == "—" else f"{numero}%"
+
+
+def _pontos_percentuais(valor):
+    numero = _numero_br(valor, 2, sinal=True)
+    return "—" if numero == "—" else f"{numero} p.p."
+
+
+def _grafico_linha(dados, coluna_x, coluna_y, titulo, moeda=False):
+    valores = pd.to_numeric(dados[coluna_y], errors="coerce")
+    figura, eixo = plt.subplots(figsize=(9, 3.5))
+    eixo.plot(dados[coluna_x].astype(str), valores, marker="o")
+    eixo.set_title(titulo)
+    if moeda:
+        eixo.yaxis.set_major_formatter(
+            FuncFormatter(lambda valor, _: f"R$ {_numero_br(valor, 0)}")
+        )
+    else:
+        eixo.yaxis.set_major_formatter(
+            FuncFormatter(lambda valor, _: _numero_br(valor, 0))
+        )
+    eixo.grid(axis="y", alpha=0.25)
+    eixo.set_axisbelow(True)
+    eixo.tick_params(axis="x", labelrotation=25)
+    figura.tight_layout()
+    st.pyplot(figura, use_container_width=True)
+    plt.close(figura)
+
+
+def _grafico_barras(dados, coluna_categoria, coluna_valor, titulo, moeda=False):
+    tabela = dados[[coluna_categoria, coluna_valor]].copy()
+    tabela[coluna_valor] = pd.to_numeric(tabela[coluna_valor], errors="coerce")
+    tabela = tabela.dropna(subset=[coluna_valor]).sort_values(coluna_valor)
+    if tabela.empty:
+        st.caption("Não há dados suficientes para exibir este gráfico.")
+        return
+
+    altura = max(3.2, min(7.0, 1.0 + 0.38 * len(tabela)))
+    figura, eixo = plt.subplots(figsize=(9, altura))
+    barras = eixo.barh(tabela[coluna_categoria].astype(str), tabela[coluna_valor])
+    if moeda:
+        eixo.xaxis.set_major_formatter(
+            FuncFormatter(lambda valor, _: f"R$ {_numero_br(valor, 0)}")
+        )
+    else:
+        eixo.xaxis.set_major_formatter(
+            FuncFormatter(lambda valor, _: _numero_br(valor, 0))
+        )
+    eixo.set_title(titulo)
+    eixo.grid(axis="x", alpha=0.25)
+    eixo.set_axisbelow(True)
+
+    minimo = min(0.0, float(tabela[coluna_valor].min()))
+    maximo = max(0.0, float(tabela[coluna_valor].max()))
+    amplitude = max(maximo - minimo, abs(maximo), abs(minimo), 1.0)
+    eixo.set_xlim(minimo - amplitude * 0.14, maximo + amplitude * 0.38)
+
+    for barra, valor in zip(barras, tabela[coluna_valor]):
+        rotulo = _moeda(valor) if moeda else _numero_br(valor, 0)
+        positivo = valor >= 0
+        eixo.annotate(
+            rotulo,
+            (valor, barra.get_y() + barra.get_height() / 2),
+            xytext=(5 if positivo else -5, 0),
+            textcoords="offset points",
+            va="center",
+            ha="left" if positivo else "right",
+            fontsize=8,
+        )
+
+    figura.tight_layout()
+    st.pyplot(figura, use_container_width=True)
+    plt.close(figura)
+
+
+def _exibir_tabela_produtos(dados):
+    identificacao = dados[["Código", "Referência", "Descrição"]].copy()
+    st.caption("Identificação dos produtos")
+    st.dataframe(
+        identificacao,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Código": st.column_config.TextColumn(width="small"),
+            "Referência": st.column_config.TextColumn(width="medium"),
+            "Descrição": st.column_config.TextColumn(width="large"),
+        },
+    )
+
+    financeiro = dados[
+        ["Código", "Faturamento atual", "Faturamento comparação", "Variação R$", "Variação %"]
+    ].copy()
+    for coluna in ["Faturamento atual", "Faturamento comparação", "Variação R$"]:
+        financeiro[coluna] = financeiro[coluna].map(_moeda)
+    financeiro["Variação %"] = financeiro["Variação %"].map(
+        lambda valor: _percentual(valor, sinal=True)
+    )
+    st.caption("Faturamento e variação")
+    st.dataframe(
+        financeiro,
+        use_container_width=True,
+        hide_index=True,
+        column_config={"Código": st.column_config.TextColumn(width="small")},
+    )
+
+    volume = dados[
+        [
+            "Código", "Unidades atuais", "Unidades comparação",
+            "Share atual %", "Variação share (p.p.)", "Situação",
+        ]
+    ].copy()
+    for coluna in ["Unidades atuais", "Unidades comparação"]:
+        volume[coluna] = volume[coluna].map(lambda valor: _numero_br(valor, 0))
+    volume["Share atual %"] = volume["Share atual %"].map(_percentual)
+    volume["Variação share (p.p.)"] = volume["Variação share (p.p.)"].map(
+        _pontos_percentuais
+    )
+    st.caption("Volume e participação")
+    st.dataframe(
+        volume,
+        use_container_width=True,
+        hide_index=True,
+        column_config={"Código": st.column_config.TextColumn(width="small")},
+    )
+
+
+def _exibir_tabela_lojas(dados):
+    financeiro = dados[
+        ["Loja", "Faturamento atual", "Faturamento comparação", "Variação R$", "Variação %"]
+    ].copy()
+    for coluna in ["Faturamento atual", "Faturamento comparação", "Variação R$"]:
+        financeiro[coluna] = financeiro[coluna].map(_moeda)
+    financeiro["Variação %"] = financeiro["Variação %"].map(
+        lambda valor: _percentual(valor, sinal=True)
+    )
+    st.caption("Faturamento por loja")
+    st.dataframe(
+        financeiro,
+        use_container_width=True,
+        hide_index=True,
+        column_config={"Loja": st.column_config.TextColumn(width="medium")},
+    )
+
+    volume = dados[
+        ["Loja", "Unidades atuais", "Unidades comparação", "Share atual %"]
+    ].copy()
+    for coluna in ["Unidades atuais", "Unidades comparação"]:
+        volume[coluna] = volume[coluna].map(lambda valor: _numero_br(valor, 0))
+    volume["Share atual %"] = volume["Share atual %"].map(_percentual)
+    st.caption("Volume e participação por loja")
+    st.dataframe(
+        volume,
+        use_container_width=True,
+        hide_index=True,
+        column_config={"Loja": st.column_config.TextColumn(width="medium")},
+    )
 
 
 def _agregar(df, chave):
@@ -617,8 +800,10 @@ def render_sellout():
     df = base[base["brand"].eq(marca)].copy()
     meses_disponiveis = set(zip(df["year"].astype(int), df["month"].astype(int)))
     st.caption(
-        f"Base consolidada: {len(df):,} registros · {df.product_code.nunique():,} SKUs · "
-        f"{df.store.nunique():,} lojas · {len(meses_disponiveis)} mês(es) com dados."
+        f"Base consolidada: {_numero_br(len(df))} registros · "
+        f"{_numero_br(df.product_code.nunique())} SKUs · "
+        f"{_numero_br(df.store.nunique())} lojas · "
+        f"{_numero_br(len(meses_disponiveis))} mês(es) com dados."
     )
 
     c1, c2, c3 = st.columns([1, 1.35, 1.7])
@@ -700,24 +885,29 @@ def render_sellout():
 
     def _delta(atual_valor, base_valor):
         variacao = _variacao(atual_valor, base_valor)
-        return None if variacao is None else f"{variacao:+.2f}%"
+        return None if variacao is None else _percentual(variacao, sinal=True)
 
-    colunas_kpi = st.columns(6)
-    colunas_kpi[0].metric(
-        "Faturamento", _moeda(resumo_atual["revenue"]),
+    kpis_comerciais = st.columns(3)
+    kpis_comerciais[0].metric(
+        "Faturamento",
+        _moeda(resumo_atual["revenue"]),
         _delta(resumo_atual["revenue"], resumo_base["revenue"]) if tem_comparacao else None,
     )
-    colunas_kpi[1].metric(
-        "Unidades vendidas", f'{resumo_atual["quantity"]:,.0f}'.replace(",", "."),
+    kpis_comerciais[1].metric(
+        "Unidades vendidas",
+        _numero_br(resumo_atual["quantity"]),
         _delta(resumo_atual["quantity"], resumo_base["quantity"]) if tem_comparacao else None,
     )
-    colunas_kpi[2].metric(
-        "Valor médio/unidade", _moeda(resumo_atual["average"]),
+    kpis_comerciais[2].metric(
+        "Valor médio/unidade",
+        _moeda(resumo_atual["average"]),
         _delta(resumo_atual["average"], resumo_base["average"]) if tem_comparacao else None,
     )
-    colunas_kpi[3].metric("Registros", f'{resumo_atual["records"]:,}'.replace(",", "."))
-    colunas_kpi[4].metric("SKUs", f'{resumo_atual["skus"]:,}'.replace(",", "."))
-    colunas_kpi[5].metric("Lojas", f'{resumo_atual["stores"]:,}'.replace(",", "."))
+
+    kpis_cobertura = st.columns(3)
+    kpis_cobertura[0].metric("Registros", _numero_br(resumo_atual["records"]))
+    kpis_cobertura[1].metric("SKUs", _numero_br(resumo_atual["skus"]))
+    kpis_cobertura[2].metric("Lojas", _numero_br(resumo_atual["stores"]))
     st.caption(
         "Valor médio por unidade = faturamento ÷ unidades. Não representa ticket médio por pedido ou cupom."
     )
@@ -733,31 +923,33 @@ def render_sellout():
         )
         graf1, graf2 = st.columns(2)
         with graf1:
-            st.caption("Evolução mensal do faturamento")
-            st.line_chart(tendencia.set_index("Período")[["faturamento"]], use_container_width=True)
+            _grafico_linha(
+                tendencia, "Período", "faturamento",
+                "Evolução mensal do faturamento", moeda=True,
+            )
         with graf2:
-            st.caption("Evolução mensal das unidades")
-            st.line_chart(tendencia.set_index("Período")[["unidades"]], use_container_width=True)
+            _grafico_linha(
+                tendencia, "Período", "unidades",
+                "Evolução mensal das unidades",
+            )
 
     if tem_comparacao:
         graf1, graf2 = st.columns(2)
         with graf1:
-            st.caption("Faturamento — período comparado")
-            st.bar_chart(
-                pd.DataFrame(
-                    {"Faturamento": [resumo_base["revenue"], resumo_atual["revenue"]]},
-                    index=[rotulo_base, rotulo_atual],
-                ),
-                use_container_width=True,
+            _grafico_barras(
+                pd.DataFrame({
+                    "Período": [rotulo_base, rotulo_atual],
+                    "Valor": [resumo_base["revenue"], resumo_atual["revenue"]],
+                }),
+                "Período", "Valor", "Faturamento — período comparado", moeda=True,
             )
         with graf2:
-            st.caption("Unidades — período comparado")
-            st.bar_chart(
-                pd.DataFrame(
-                    {"Unidades": [resumo_base["quantity"], resumo_atual["quantity"]]},
-                    index=[rotulo_base, rotulo_atual],
-                ),
-                use_container_width=True,
+            _grafico_barras(
+                pd.DataFrame({
+                    "Período": [rotulo_base, rotulo_atual],
+                    "Valor": [resumo_base["quantity"], resumo_atual["quantity"]],
+                }),
+                "Período", "Valor", "Unidades — período comparado",
             )
 
         st.markdown("### Desempenho por produto")
@@ -784,44 +976,38 @@ def render_sellout():
                 "Variação share (p.p.)", "Situação",
             ]
         ]
-        config_produtos = {
-            "Faturamento atual": st.column_config.NumberColumn(format="R$ %.2f"),
-            "Faturamento comparação": st.column_config.NumberColumn(format="R$ %.2f"),
-            "Variação R$": st.column_config.NumberColumn(format="R$ %.2f"),
-            "Variação %": st.column_config.NumberColumn(format="%.2f%%"),
-            "Share atual %": st.column_config.NumberColumn(format="%.2f%%"),
-            "Variação share (p.p.)": st.column_config.NumberColumn(format="%.2f"),
-        }
         aba1, aba2, aba3 = st.tabs(["Maiores avanços", "Maiores retrações", "Todos os SKUs"])
         with aba1:
             avancos = visao_produtos[visao_produtos["Variação R$"] > 0].sort_values(
                 "Variação R$", ascending=False
             ).head(30)
-            st.dataframe(avancos, use_container_width=True, hide_index=True, column_config=config_produtos)
+            _exibir_tabela_produtos(avancos)
         with aba2:
             retracoes = visao_produtos[visao_produtos["Variação R$"] < 0].sort_values(
                 "Variação R$"
             ).head(30)
-            st.dataframe(retracoes, use_container_width=True, hide_index=True, column_config=config_produtos)
+            _exibir_tabela_produtos(retracoes)
         with aba3:
-            st.dataframe(
-                visao_produtos.sort_values("Faturamento atual", ascending=False),
-                use_container_width=True,
-                hide_index=True,
-                column_config=config_produtos,
+            todos_produtos = visao_produtos.sort_values(
+                "Faturamento atual", ascending=False
             )
+            _exibir_tabela_produtos(todos_produtos)
 
         graf1, graf2 = st.columns(2)
         with graf1:
-            st.caption("SKUs com maior avanço de faturamento")
             maiores = produtos[produtos.delta_revenue > 0].nlargest(10, "delta_revenue")
             if not maiores.empty:
-                st.bar_chart(maiores.set_index("product_code")[["delta_revenue"]], use_container_width=True)
+                _grafico_barras(
+                    maiores, "product_code", "delta_revenue",
+                    "SKUs com maior avanço de faturamento", moeda=True,
+                )
         with graf2:
-            st.caption("SKUs com maior retração de faturamento")
             menores = produtos[produtos.delta_revenue < 0].nsmallest(10, "delta_revenue")
             if not menores.empty:
-                st.bar_chart(menores.set_index("product_code")[["delta_revenue"]], use_container_width=True)
+                _grafico_barras(
+                    menores, "product_code", "delta_revenue",
+                    "SKUs com maior retração de faturamento", moeda=True,
+                )
 
         st.markdown("### Desempenho por loja")
         visao_lojas = lojas.rename(
@@ -842,30 +1028,24 @@ def render_sellout():
                 "Unidades comparação", "Share atual %",
             ]
         ]
-        config_lojas = {
-            "Faturamento atual": st.column_config.NumberColumn(format="R$ %.2f"),
-            "Faturamento comparação": st.column_config.NumberColumn(format="R$ %.2f"),
-            "Variação R$": st.column_config.NumberColumn(format="R$ %.2f"),
-            "Variação %": st.column_config.NumberColumn(format="%.2f%%"),
-            "Share atual %": st.column_config.NumberColumn(format="%.2f%%"),
-        }
-        st.dataframe(
-            visao_lojas.sort_values("Faturamento atual", ascending=False),
-            use_container_width=True,
-            hide_index=True,
-            column_config=config_lojas,
+        _exibir_tabela_lojas(
+            visao_lojas.sort_values("Faturamento atual", ascending=False)
         )
         graf1, graf2 = st.columns(2)
         with graf1:
-            st.caption("Lojas com maior avanço")
             maiores_lojas = lojas[lojas.delta_revenue > 0].nlargest(10, "delta_revenue")
             if not maiores_lojas.empty:
-                st.bar_chart(maiores_lojas.set_index("store")[["delta_revenue"]], use_container_width=True)
+                _grafico_barras(
+                    maiores_lojas, "store", "delta_revenue",
+                    "Lojas com maior avanço", moeda=True,
+                )
         with graf2:
-            st.caption("Lojas com maior retração")
             menores_lojas = lojas[lojas.delta_revenue < 0].nsmallest(10, "delta_revenue")
             if not menores_lojas.empty:
-                st.bar_chart(menores_lojas.set_index("store")[["delta_revenue"]], use_container_width=True)
+                _grafico_barras(
+                    menores_lojas, "store", "delta_revenue",
+                    "Lojas com maior retração", moeda=True,
+                )
 
         st.markdown("### Insights gerenciais")
         variacao_receita = _variacao(resumo_atual["revenue"], resumo_base["revenue"])
@@ -881,7 +1061,10 @@ def render_sellout():
             elif resumo_atual["revenue"] < resumo_base["revenue"] and resumo_atual["quantity"] < resumo_base["quantity"]:
                 st.markdown("- Faturamento e volume recuaram juntos. Priorize os SKUs e lojas que mais contribuíram para a queda.")
         if variacao_media is not None:
-            st.markdown(f"- O valor médio por unidade variou {variacao_media:+.2f}% frente à comparação.")
+            st.markdown(
+                f"- O valor médio por unidade variou {_percentual(variacao_media, sinal=True)} "
+                "frente à comparação."
+            )
         maiores = produtos[produtos.delta_revenue > 0].nlargest(3, "delta_revenue")
         menores = produtos[produtos.delta_revenue < 0].nsmallest(3, "delta_revenue")
         if not maiores.empty:
@@ -907,36 +1090,65 @@ def render_sellout():
         st.markdown("### Resultado por produto no período")
         produtos_exportar = _agregar(periodo_completo, "product_code").sort_values("revenue", ascending=False)
         if not produtos_exportar.empty:
-            st.bar_chart(
-                produtos_exportar.head(10).set_index("product_code")[["revenue"]],
-                use_container_width=True,
+            _grafico_barras(
+                produtos_exportar.head(10), "product_code", "revenue",
+                "Maiores faturamentos por produto", moeda=True,
             )
+        produtos_identificacao = produtos_exportar.rename(
+            columns={
+                "product_code": "Código",
+                "reference": "Referência",
+                "description": "Descrição",
+            }
+        )[["Código", "Referência", "Descrição"]].copy()
+        st.caption("Identificação dos produtos")
         st.dataframe(
-            produtos_exportar.rename(
-                columns={
-                    "product_code": "Código", "reference": "Referência",
-                    "description": "Descrição", "quantity": "Unidades",
-                    "revenue": "Faturamento",
-                }
-            ),
+            produtos_identificacao,
             use_container_width=True,
             hide_index=True,
-            column_config={"Faturamento": st.column_config.NumberColumn(format="R$ %.2f")},
+            column_config={
+                "Código": st.column_config.TextColumn(width="small"),
+                "Referência": st.column_config.TextColumn(width="medium"),
+                "Descrição": st.column_config.TextColumn(width="large"),
+            },
+        )
+        produtos_resultado = produtos_exportar.rename(
+            columns={
+                "product_code": "Código",
+                "quantity": "Unidades",
+                "revenue": "Faturamento",
+            }
+        )[["Código", "Unidades", "Faturamento"]].copy()
+        produtos_resultado["Unidades"] = produtos_resultado["Unidades"].map(
+            lambda valor: _numero_br(valor, 0)
+        )
+        produtos_resultado["Faturamento"] = produtos_resultado["Faturamento"].map(_moeda)
+        st.caption("Resultado por produto")
+        st.dataframe(
+            produtos_resultado,
+            use_container_width=True,
+            hide_index=True,
+            column_config={"Código": st.column_config.TextColumn(width="small")},
         )
         st.markdown("### Resultado por loja no período")
         lojas_exportar = _agregar(periodo_completo, "store").sort_values("revenue", ascending=False)
         if not lojas_exportar.empty:
-            st.bar_chart(
-                lojas_exportar.head(10).set_index("store")[["revenue"]],
-                use_container_width=True,
+            _grafico_barras(
+                lojas_exportar.head(10), "store", "revenue",
+                "Maiores faturamentos por loja", moeda=True,
             )
+        lojas_resultado = lojas_exportar.rename(
+            columns={"store": "Loja", "quantity": "Unidades", "revenue": "Faturamento"}
+        )[["Loja", "Unidades", "Faturamento"]].copy()
+        lojas_resultado["Unidades"] = lojas_resultado["Unidades"].map(
+            lambda valor: _numero_br(valor, 0)
+        )
+        lojas_resultado["Faturamento"] = lojas_resultado["Faturamento"].map(_moeda)
         st.dataframe(
-            lojas_exportar.rename(
-                columns={"store": "Loja", "quantity": "Unidades", "revenue": "Faturamento"}
-            ),
+            lojas_resultado,
             use_container_width=True,
             hide_index=True,
-            column_config={"Faturamento": st.column_config.NumberColumn(format="R$ %.2f")},
+            column_config={"Loja": st.column_config.TextColumn(width="medium")},
         )
         periodo_atual_exportar, periodo_base_exportar = periodo_completo, base_completa
 
@@ -950,13 +1162,18 @@ def render_sellout():
                 .agg(unidades=("quantity", "sum"), faturamento=("revenue", "sum"))
                 .sort_values("faturamento", ascending=False)
             )
+            categorias = categorias.rename(
+                columns={"category": "Categoria", "unidades": "Unidades", "faturamento": "Faturamento"}
+            )
+            categorias["Unidades"] = categorias["Unidades"].map(
+                lambda valor: _numero_br(valor, 0)
+            )
+            categorias["Faturamento"] = categorias["Faturamento"].map(_moeda)
             st.dataframe(
-                categorias.rename(
-                    columns={"category": "Categoria", "unidades": "Unidades", "faturamento": "Faturamento"}
-                ),
+                categorias,
                 use_container_width=True,
                 hide_index=True,
-                column_config={"Faturamento": st.column_config.NumberColumn(format="R$ %.2f")},
+                column_config={"Categoria": st.column_config.TextColumn(width="large")},
             )
     else:
         st.caption(
@@ -972,11 +1189,14 @@ def render_sellout():
         historico["Período"] = historico.apply(
             lambda linha: _rotulo("Mensal", (linha.year, linha.month)), axis=1
         )
+        historico = historico[["Período", "registros", "unidades", "faturamento"]].copy()
+        historico["registros"] = historico["registros"].map(lambda valor: _numero_br(valor, 0))
+        historico["unidades"] = historico["unidades"].map(lambda valor: _numero_br(valor, 0))
+        historico["faturamento"] = historico["faturamento"].map(_moeda)
         st.dataframe(
-            historico[["Período", "registros", "unidades", "faturamento"]],
+            historico,
             use_container_width=True,
             hide_index=True,
-            column_config={"faturamento": st.column_config.NumberColumn(format="R$ %.2f")},
         )
 
     resumo_exportar = [
