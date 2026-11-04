@@ -8,6 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from line_analysis_v2 import render_analise_linha
+from sellout_module import render_sellout
 from pendencias_module import render_pendencias
 from orders_module import render_gestao_pedidos
 from tasks_module import render_tasks
@@ -118,6 +119,7 @@ MENU_ITEMS = [
     "Início",
     "Planejamento de Pedido",
     "Análise de Linha",
+    "Análise de Sell-out",
     "Análise de Pendências",
     "Gestão de Pedidos",
 ]
@@ -179,6 +181,11 @@ if pagina == "Início":
 
 if pagina == "Análise de Linha":
     render_analise_linha()
+    render_sidebar_account_controls()
+    st.stop()
+
+if pagina == "Análise de Sell-out":
+    render_sellout()
     render_sidebar_account_controls()
     st.stop()
 
