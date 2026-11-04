@@ -781,7 +781,7 @@ def render_sellout():
                     _persistir(_mesclar(base, novos))
                     st.session_state["sellout_versao_upload"] = versao + 1
                     st.session_state["sellout_aviso_importacao"] = (
-                        f"{len(novos):,} registros processados. Meses atualizados: "
+                        f"{_numero_br(len(novos))} registros processados. Meses atualizados: "
                         + ", ".join(meses_importados)
                         + (" Arquivos repetidos foram ignorados." if repetidos else "")
                     )
@@ -921,36 +921,30 @@ def render_sellout():
         tendencia["Período"] = tendencia.apply(
             lambda linha: _rotulo("Mensal", (linha.year, linha.month)), axis=1
         )
-        graf1, graf2 = st.columns(2)
-        with graf1:
-            _grafico_linha(
-                tendencia, "Período", "faturamento",
-                "Evolução mensal do faturamento", moeda=True,
-            )
-        with graf2:
-            _grafico_linha(
-                tendencia, "Período", "unidades",
-                "Evolução mensal das unidades",
-            )
+        _grafico_linha(
+            tendencia, "Período", "faturamento",
+            "Evolução mensal do faturamento", moeda=True,
+        )
+        _grafico_linha(
+            tendencia, "Período", "unidades",
+            "Evolução mensal das unidades",
+        )
 
     if tem_comparacao:
-        graf1, graf2 = st.columns(2)
-        with graf1:
-            _grafico_barras(
-                pd.DataFrame({
-                    "Período": [rotulo_base, rotulo_atual],
-                    "Valor": [resumo_base["revenue"], resumo_atual["revenue"]],
-                }),
-                "Período", "Valor", "Faturamento — período comparado", moeda=True,
-            )
-        with graf2:
-            _grafico_barras(
-                pd.DataFrame({
-                    "Período": [rotulo_base, rotulo_atual],
-                    "Valor": [resumo_base["quantity"], resumo_atual["quantity"]],
-                }),
-                "Período", "Valor", "Unidades — período comparado",
-            )
+        _grafico_barras(
+            pd.DataFrame({
+                "Período": [rotulo_base, rotulo_atual],
+                "Valor": [resumo_base["revenue"], resumo_atual["revenue"]],
+            }),
+            "Período", "Valor", "Faturamento — período comparado", moeda=True,
+        )
+        _grafico_barras(
+            pd.DataFrame({
+                "Período": [rotulo_base, rotulo_atual],
+                "Valor": [resumo_base["quantity"], resumo_atual["quantity"]],
+            }),
+            "Período", "Valor", "Unidades — período comparado",
+        )
 
         st.markdown("### Desempenho por produto")
         produtos["Código"] = produtos["product_code"]
@@ -993,21 +987,18 @@ def render_sellout():
             )
             _exibir_tabela_produtos(todos_produtos)
 
-        graf1, graf2 = st.columns(2)
-        with graf1:
-            maiores = produtos[produtos.delta_revenue > 0].nlargest(10, "delta_revenue")
-            if not maiores.empty:
-                _grafico_barras(
-                    maiores, "product_code", "delta_revenue",
-                    "SKUs com maior avanço de faturamento", moeda=True,
-                )
-        with graf2:
-            menores = produtos[produtos.delta_revenue < 0].nsmallest(10, "delta_revenue")
-            if not menores.empty:
-                _grafico_barras(
-                    menores, "product_code", "delta_revenue",
-                    "SKUs com maior retração de faturamento", moeda=True,
-                )
+        maiores = produtos[produtos.delta_revenue > 0].nlargest(10, "delta_revenue")
+        if not maiores.empty:
+            _grafico_barras(
+                maiores, "product_code", "delta_revenue",
+                "SKUs com maior avanço de faturamento", moeda=True,
+            )
+        menores = produtos[produtos.delta_revenue < 0].nsmallest(10, "delta_revenue")
+        if not menores.empty:
+            _grafico_barras(
+                menores, "product_code", "delta_revenue",
+                "SKUs com maior retração de faturamento", moeda=True,
+            )
 
         st.markdown("### Desempenho por loja")
         visao_lojas = lojas.rename(
@@ -1031,21 +1022,18 @@ def render_sellout():
         _exibir_tabela_lojas(
             visao_lojas.sort_values("Faturamento atual", ascending=False)
         )
-        graf1, graf2 = st.columns(2)
-        with graf1:
-            maiores_lojas = lojas[lojas.delta_revenue > 0].nlargest(10, "delta_revenue")
-            if not maiores_lojas.empty:
-                _grafico_barras(
-                    maiores_lojas, "store", "delta_revenue",
-                    "Lojas com maior avanço", moeda=True,
-                )
-        with graf2:
-            menores_lojas = lojas[lojas.delta_revenue < 0].nsmallest(10, "delta_revenue")
-            if not menores_lojas.empty:
-                _grafico_barras(
-                    menores_lojas, "store", "delta_revenue",
-                    "Lojas com maior retração", moeda=True,
-                )
+        maiores_lojas = lojas[lojas.delta_revenue > 0].nlargest(10, "delta_revenue")
+        if not maiores_lojas.empty:
+            _grafico_barras(
+                maiores_lojas, "store", "delta_revenue",
+                "Lojas com maior avanço", moeda=True,
+            )
+        menores_lojas = lojas[lojas.delta_revenue < 0].nsmallest(10, "delta_revenue")
+        if not menores_lojas.empty:
+            _grafico_barras(
+                menores_lojas, "store", "delta_revenue",
+                "Lojas com maior retração", moeda=True,
+            )
 
         st.markdown("### Insights gerenciais")
         variacao_receita = _variacao(resumo_atual["revenue"], resumo_base["revenue"])
