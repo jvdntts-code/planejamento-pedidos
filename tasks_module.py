@@ -96,7 +96,7 @@ def _read_tasks_from(repo, branch, token, file_path):
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             return [], None, False
-        return [], f"Não foi possível carregar as tarefas (HTTP {exc.code}).", False
+        return [], ("Token do GitHub inválido, revogado ou sem acesso ao repositório. Atualize GITHUB_TOKEN nos Secrets do Streamlit (HTTP 401)." if exc.code == 401 else f"Não foi possível carregar as tarefas (HTTP {exc.code})."), False
     except Exception as exc:
         return [], f"Não foi possível carregar as tarefas: {exc}", False
 
@@ -163,7 +163,7 @@ def _save_tasks(tasks):
             sha = existing.get("sha")
     except urllib.error.HTTPError as exc:
         if exc.code != 404:
-            return False, f"Não foi possível localizar o arquivo de tarefas (HTTP {exc.code})."
+            return False, ("Token do GitHub inválido, revogado ou sem acesso ao repositório. Atualize GITHUB_TOKEN nos Secrets do Streamlit (HTTP 401)." if exc.code == 401 else f"Não foi possível localizar o arquivo de tarefas (HTTP {exc.code}).")
     except Exception as exc:
         return False, f"Não foi possível localizar o arquivo de tarefas: {exc}"
 
@@ -187,7 +187,7 @@ def _save_tasks(tasks):
             response.read()
         return True, "Tarefas salvas."
     except urllib.error.HTTPError as exc:
-        return False, f"Não foi possível salvar as tarefas (HTTP {exc.code})."
+        return False, ("Token do GitHub inválido, revogado ou sem permissão para gravar no repositório. Atualize GITHUB_TOKEN nos Secrets do Streamlit (HTTP 401)." if exc.code == 401 else f"Não foi possível salvar as tarefas (HTTP {exc.code}).")
     except Exception as exc:
         return False, f"Não foi possível salvar as tarefas: {exc}"
 
