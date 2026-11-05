@@ -36,7 +36,7 @@ def _secret(nome, padrao=""):
 
 def _configuracao():
     # Os dados operacionais devem ficar exclusivamente no repositório privado.
-    repo = str(_secret("GITHUB_DATA_REPO", "")).strip()
+    repo = str(_secret("GITHUB_DATA_REPO", _secret("GITHUB_REPO", "jvdntts-code/planejamento-pedidos"))).strip()
     branch = str(_secret("GITHUB_DATA_BRANCH", _secret("GITHUB_BRANCH", "main"))).strip() or "main"
     token = str(_secret("GITHUB_TOKEN", "")).strip()
     return repo, branch, token
@@ -107,7 +107,7 @@ def _carregar_remoto():
     except urllib.error.HTTPError as erro:
         if erro.code == 404:
             return _vazio(), ""
-        return _vazio(), f"Não foi possível carregar a base privada (HTTP {erro.code})."
+        return _vazio(), ("Token do GitHub inválido, revogado ou sem acesso ao repositório. Atualize GITHUB_TOKEN nos Secrets do Streamlit (HTTP 401)." if erro.code == 401 else f"Não foi possível carregar a base privada (HTTP {erro.code}).")
     except Exception:
         return _vazio(), "Não foi possível carregar a base consolidada. Confira a configuração de acesso ao repositório privado."
 
@@ -133,7 +133,7 @@ def _salvar_remoto(df):
             sha = json.loads(resposta.read().decode("utf-8")).get("sha")
     except urllib.error.HTTPError as erro:
         if erro.code != 404:
-            return False, f"Falha ao preparar o salvamento da base (HTTP {erro.code})."
+            return False, ("Token do GitHub inválido, revogado ou sem permissão no repositório. Atualize GITHUB_TOKEN nos Secrets do Streamlit (HTTP 401)." if erro.code == 401 else f"Falha ao preparar o salvamento da base (HTTP {erro.code}).")
     except Exception:
         return False, "Falha ao preparar o salvamento da base privada."
 
@@ -154,7 +154,7 @@ def _salvar_remoto(df):
         with urllib.request.urlopen(requisicao, timeout=30):
             return True, "Base consolidada salva no repositório privado da conta."
     except urllib.error.HTTPError as erro:
-        return False, f"Falha ao salvar a base privada (HTTP {erro.code})."
+        return False, ("Token do GitHub inválido, revogado ou sem permissão para gravar no repositório. Atualize GITHUB_TOKEN nos Secrets do Streamlit (HTTP 401)." if erro.code == 401 else f"Falha ao salvar a base privada (HTTP {erro.code}).")
     except Exception:
         return False, "Falha ao salvar a base privada. Os dados continuam disponíveis nesta sessão."
 
