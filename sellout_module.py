@@ -566,19 +566,72 @@ def _grafico_barras(dados, coluna_categoria, coluna_valor, titulo, moeda=False):
     plt.close(figura)
 
 
+def _exibir_tabela_completa(dados):
+    """
+    Exibe a tabela como HTML estático via Styler, permitindo quebra de linha
+    e altura automática das células. O grid padrão do st.dataframe truncava
+    descrições longas com reticências.
+    """
+    if dados is None or dados.empty:
+        st.info("Não há registros para exibir.")
+        return
+
+    tabela = dados.copy()
+    estilos = [
+        {
+            "selector": "table",
+            "props": [
+                ("width", "100%"),
+                ("table-layout", "auto"),
+                ("border-collapse", "collapse"),
+            ],
+        },
+        {
+            "selector": "th",
+            "props": [
+                ("white-space", "normal"),
+                ("text-align", "left"),
+                ("vertical-align", "bottom"),
+                ("padding", "0.6rem 0.7rem"),
+            ],
+        },
+        {
+            "selector": "td",
+            "props": [
+                ("vertical-align", "top"),
+                ("padding", "0.55rem 0.7rem"),
+                ("white-space", "nowrap"),
+            ],
+        },
+    ]
+    estilo = tabela.style.set_table_styles(estilos).hide(axis="index")
+
+    for coluna in tabela.columns:
+        nome = str(coluna).strip().lower()
+        if nome in {"descrição", "description", "categoria", "referência"}:
+            estilo = estilo.set_properties(
+                subset=[coluna],
+                **{
+                    "white-space": "normal",
+                    "overflow-wrap": "anywhere",
+                    "word-break": "normal",
+                    "min-width": "180px",
+                    "max-width": "520px",
+                },
+            )
+        elif nome in {"código", "codigo", "loja"}:
+            estilo = estilo.set_properties(
+                subset=[coluna],
+                **{"white-space": "nowrap", "min-width": "100px"},
+            )
+
+    st.table(estilo)
+
+
 def _exibir_tabela_produtos(dados):
     identificacao = dados[["Código", "Referência", "Descrição"]].copy()
     st.caption("Identificação dos produtos")
-    st.dataframe(
-        identificacao,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Código": st.column_config.TextColumn(width="small"),
-            "Referência": st.column_config.TextColumn(width="medium"),
-            "Descrição": st.column_config.TextColumn(width="large"),
-        },
-    )
+    _exibir_tabela_completa(identificacao)
 
     financeiro = dados[
         ["Código", "Faturamento atual", "Faturamento comparação", "Variação R$", "Variação %"]
@@ -589,12 +642,7 @@ def _exibir_tabela_produtos(dados):
         lambda valor: _percentual(valor, sinal=True)
     )
     st.caption("Faturamento e variação")
-    st.dataframe(
-        financeiro,
-        use_container_width=True,
-        hide_index=True,
-        column_config={"Código": st.column_config.TextColumn(width="small")},
-    )
+    _exibir_tabela_completa(financeiro)
 
     volume = dados[
         [
@@ -609,12 +657,7 @@ def _exibir_tabela_produtos(dados):
         _pontos_percentuais
     )
     st.caption("Volume e participação")
-    st.dataframe(
-        volume,
-        use_container_width=True,
-        hide_index=True,
-        column_config={"Código": st.column_config.TextColumn(width="small")},
-    )
+    _exibir_tabela_completa(volume)
 
 
 def _exibir_tabela_lojas(dados):
@@ -627,12 +670,7 @@ def _exibir_tabela_lojas(dados):
         lambda valor: _percentual(valor, sinal=True)
     )
     st.caption("Faturamento por loja")
-    st.dataframe(
-        financeiro,
-        use_container_width=True,
-        hide_index=True,
-        column_config={"Loja": st.column_config.TextColumn(width="medium")},
-    )
+    _exibir_tabela_completa(financeiro)
 
     volume = dados[
         ["Loja", "Unidades atuais", "Unidades comparação", "Share atual %"]
@@ -641,12 +679,7 @@ def _exibir_tabela_lojas(dados):
         volume[coluna] = volume[coluna].map(lambda valor: _numero_br(valor, 0))
     volume["Share atual %"] = volume["Share atual %"].map(_percentual)
     st.caption("Volume e participação por loja")
-    st.dataframe(
-        volume,
-        use_container_width=True,
-        hide_index=True,
-        column_config={"Loja": st.column_config.TextColumn(width="medium")},
-    )
+    _exibir_tabela_completa(volume)
 
 
 def _agregar(df, chave):
@@ -1144,16 +1177,7 @@ def render_sellout():
             }
         )[["Código", "Referência", "Descrição"]].copy()
         st.caption("Identificação dos produtos")
-        st.dataframe(
-            produtos_identificacao,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Código": st.column_config.TextColumn(width="small"),
-                "Referência": st.column_config.TextColumn(width="medium"),
-                "Descrição": st.column_config.TextColumn(width="large"),
-            },
-        )
+        _exibir_tabela_completa(produtos_identificacao)
         produtos_resultado = produtos_exportar.rename(
             columns={
                 "product_code": "Código",
@@ -1166,12 +1190,7 @@ def render_sellout():
         )
         produtos_resultado["Faturamento"] = produtos_resultado["Faturamento"].map(_moeda)
         st.caption("Resultado por produto")
-        st.dataframe(
-            produtos_resultado,
-            use_container_width=True,
-            hide_index=True,
-            column_config={"Código": st.column_config.TextColumn(width="small")},
-        )
+        _exibir_tabela_completa(produtos_resultado)
         st.markdown("### Resultado por loja no período")
         lojas_exportar = _agregar(periodo_completo, "store").sort_values("revenue", ascending=False)
         if not lojas_exportar.empty:
@@ -1186,12 +1205,7 @@ def render_sellout():
             lambda valor: _numero_br(valor, 0)
         )
         lojas_resultado["Faturamento"] = lojas_resultado["Faturamento"].map(_moeda)
-        st.dataframe(
-            lojas_resultado,
-            use_container_width=True,
-            hide_index=True,
-            column_config={"Loja": st.column_config.TextColumn(width="medium")},
-        )
+        _exibir_tabela_completa(lojas_resultado)
         periodo_atual_exportar, periodo_base_exportar = periodo_completo, base_completa
 
     if df["category"].fillna("").astype(str).str.strip().ne("").any():
@@ -1211,12 +1225,7 @@ def render_sellout():
                 lambda valor: _numero_br(valor, 0)
             )
             categorias["Faturamento"] = categorias["Faturamento"].map(_moeda)
-            st.dataframe(
-                categorias,
-                use_container_width=True,
-                hide_index=True,
-                column_config={"Categoria": st.column_config.TextColumn(width="large")},
-            )
+            _exibir_tabela_completa(categorias)
     else:
         st.caption(
             "Categoria não consta nos arquivos importados. O NEXO não classifica produtos automaticamente apenas pela descrição."
@@ -1235,11 +1244,7 @@ def render_sellout():
         historico["registros"] = historico["registros"].map(lambda valor: _numero_br(valor, 0))
         historico["unidades"] = historico["unidades"].map(lambda valor: _numero_br(valor, 0))
         historico["faturamento"] = historico["faturamento"].map(_moeda)
-        st.dataframe(
-            historico,
-            use_container_width=True,
-            hide_index=True,
-        )
+        _exibir_tabela_completa(historico)
 
     resumo_exportar = [
         {"Indicador": "Faturamento", "Período atual": resumo_atual["revenue"], "Comparação": resumo_base["revenue"] if tem_comparacao else None},
