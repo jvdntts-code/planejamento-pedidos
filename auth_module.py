@@ -47,7 +47,7 @@ def user_storage_prefix(username=None):
 
 
 def _data_settings():
-    repo = str(_secret("GITHUB_DATA_REPO", "")).strip()
+    repo = str(_secret("GITHUB_DATA_REPO", _secret("GITHUB_REPO", "jvdntts-code/planejamento-pedidos"))).strip()
     branch = str(
         _secret(
             "GITHUB_DATA_BRANCH",
@@ -95,7 +95,7 @@ def _read_registry():
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             return {}, None, None
-        return {}, None, f"Não foi possível carregar as contas (HTTP {exc.code})."
+        return {}, None, ("Token do GitHub inválido, revogado ou sem acesso ao repositório. Atualize GITHUB_TOKEN nos Secrets do Streamlit (HTTP 401)." if exc.code == 401 else f"Não foi possível carregar as contas (HTTP {exc.code}).")
     except Exception as exc:
         return {}, None, f"Não foi possível carregar as contas: {exc}"
 
@@ -155,7 +155,7 @@ def _write_registry(users, sha=None):
         except Exception:
             detail = ""
         suffix = f" — {detail}" if detail else ""
-        return False, f"Não foi possível salvar as contas (HTTP {exc.code}){suffix}."
+        return False, (f"Token do GitHub inválido, revogado ou sem permissão para gravar no repositório. Atualize GITHUB_TOKEN nos Secrets do Streamlit (HTTP 401){suffix}." if exc.code == 401 else f"Não foi possível salvar as contas (HTTP {exc.code}){suffix}.")
     except Exception as exc:
         return False, f"Não foi possível salvar as contas: {exc}"
 
