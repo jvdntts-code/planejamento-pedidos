@@ -690,63 +690,60 @@ def _pie_chart(
     color_domain=None,
     color_range=None,
 ):
+    """Rosca responsiva com percentuais e legenda completa em tabela."""
     chart_data = data[[category, value]].copy()
     chart_data[value] = pd.to_numeric(chart_data[value], errors="coerce").fillna(0)
     chart_data = chart_data[chart_data[value] > 0].copy()
-
+    chart_data = chart_data.groupby(category, as_index=False, dropna=False)[value].sum()
+    chart_data = chart_data.sort_values(value, ascending=False).reset_index(drop=True)
     total = float(chart_data[value].sum())
     if chart_data.empty or total <= 0:
-        st.info("Sem dados para este gráfico.")
+        st.info("Sem faturamento positivo para exibir neste gráfico.")
         return
 
-    chart_data["percentual"] = chart_data[value] / total
-    chart_data["participacao"] = (chart_data["percentual"] * 100).round(1)
-
-    color_encoding = {
-        "field": category,
-        "type": "nominal",
-        "legend": {
-            "title": None,
-            "orient": "bottom",
-            "columns": 2,
-            "labelLimit": 260,
-        },
+    chart_data["Participação (%)"] = chart_data[value] / total * 100
+    chart_data["Valor (R$)"] = chart_data[value].map(brl)
+    chart_data["Legenda"] = chart_data[category].astype(str)
+    chart_data["Ordem"] = np.arange(len(chart_data))
+    # Categorias pequenas permanecem disponíveis na tabela e no tooltip,
+    # sem sobrecarregar visualmente o gráfico com rótulos ilegíveis.
+    palette = (color_range or LINE_CHART_COLORS)
+    chart_colors = {
+        name: palette[(color_domain.index(name) if color_domain and name in color_domain else idx) % len(palette)]
+        for idx, name in enumerate(chart_data[category].tolist())
     }
-    if color_domain and color_range:
-        color_encoding["scale"] = {
-            "domain": color_domain,
-            "range": color_range,
-        }
-
     spec = {
-        "mark": {
-            "type": "arc",
-            "outerRadius": 118,
-            "stroke": "#111827",
-            "strokeWidth": 1,
-        },
+        "height": 320,
+        "mark": {"type": "arc", "innerRadius": 82, "outerRadius": 145,
+                 "padAngle": 0.012, "cornerRadius": 4, "strokeWidth": 1,
+                 "stroke": "#ffffff"},
         "encoding": {
-            "theta": {
-                "field": value,
-                "type": "quantitative",
-                "stack": True,
+            "theta": {"field": value, "type": "quantitative", "stack": True},
+            "order": {"field": "Ordem", "type": "quantitative", "sort": "ascending"},
+            "color": {
+                "field": "Legenda", "type": "nominal", "legend": None,
+                "scale": {"domain": list(chart_colors), "range": list(chart_colors.values())},
             },
-            "color": color_encoding,
             "tooltip": [
-                {"field": category, "type": "nominal", "title": category},
-                {"field": value, "type": "quantitative", "title": value_label, "format": ",.2f"},
-                {"field": "participacao", "type": "quantitative", "title": "Participação (%)", "format": ".1f"},
+                {"field": "Legenda", "type": "nominal", "title": "Linha"},
+                {"field": "Valor (R$)", "type": "nominal", "title": value_label},
+                {"field": "Participação (%)", "type": "quantitative",
+                 "title": "Participação", "format": ".1f"},
             ],
         },
         "view": {"stroke": None},
     }
-
     st.markdown(f"**{title}**")
     st.caption(description)
-    st.vega_lite_chart(
-        chart_data,
-        spec,
-        use_container_width=True,
+    st.vega_lite_chart(chart_data, spec, use_container_width=True)
+    st.caption(f"Faturamento total representado: {brl(total)} • Passe o mouse sobre cada fatia para ver os valores.")
+    legend = chart_data[[category, "Participação (%)", "Valor (R$)"]].copy()
+    legend.columns = ["Linha", "Participação (%)", "Faturamento"]
+    st.dataframe(
+        legend, use_container_width=True, hide_index=True,
+        column_config={"Participação (%)": st.column_config.ProgressColumn(
+            "Participação (%)", min_value=0, max_value=100, format="%.1f%%"
+        )},
     )
 
 
