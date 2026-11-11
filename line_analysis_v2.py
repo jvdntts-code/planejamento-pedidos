@@ -2274,6 +2274,33 @@ def render_analise_linha():
     fin2.metric("Estoque (unidades)", integer(total_stock))
     fin3.metric("Estoque a Preço de Venda", brl(stock_value))
 
+    # Cobertura geral ponderada pelo consumo em unidades, apenas dos produtos com vendas.
+    # Estoques sem giro não devem inflar artificialmente a duração estimada.
+    active_sales = products["vendas_periodo"] > 0
+    active_stock = float(products.loc[active_sales, "estoque"].clip(lower=0).sum())
+    active_units_sold = float(products.loc[active_sales, "vendas_periodo"].sum())
+    daily_consumption = active_units_sold / period_days if period_days > 0 else 0.0
+    overall_days = active_stock / daily_consumption if daily_consumption > 0 else None
+    overall_months = overall_days / 30.0 if overall_days is not None else None
+    inactive_stock = float(products.loc[~active_sales, "estoque"].clip(lower=0).sum())
+
+    st.markdown("#### Duração geral do estoque")
+    duration_col, daily_col, stock_col = st.columns(3)
+    duration_col.metric(
+        "Cobertura estimada (meses)",
+        f"{overall_months:.1f}" .replace(".", ",") if overall_months is not None else "Sem consumo",
+    )
+    daily_col.metric("Consumo médio diário (un.)", integer(daily_consumption))
+    stock_col.metric("Estoque com vendas (un.)", integer(active_stock))
+    st.caption(
+        f"Estimativa: estoque dos produtos com vendas ÷ consumo médio diário no período de "
+        f"{period_days} dias ÷ 30 dias por mês. "
+        f"Não considera reposições futuras nem sazonalidade. "
+        f"Estoque de produtos sem vendas ({integer(inactive_stock)} un.) excluído "
+        f"para não distorcer a cobertura; não representa a duração individual de cada produto."
+    )
+
+
     left_panel, right_panel = st.columns([1, 1.25])
 
     with left_panel:
