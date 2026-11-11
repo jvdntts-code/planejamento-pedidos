@@ -2326,6 +2326,9 @@ def render_analise_linha():
     )
 
     products, summary = build_line_analysis(base, period_days, criteria, long_days)
+    from stock_projection import render_projection
+    render_projection(products, period_days, classify_coverage, criteria)
+
     revenue_col = "faturamento_analise"
 
     total_revenue = float(products["faturamento_periodo"].sum())
