@@ -1038,8 +1038,9 @@ def _excel_pie_image(
         if value > 0
     ]
     if not filtered:
-        filtered = [("Sem dados", 1.0, 0)]
+        return None
 
+    filtered.sort(key=lambda item: item[1], reverse=True)
     labels = [x[0] for x in filtered]
     values = [x[1] for x in filtered]
     idxs = [x[2] for x in filtered]
@@ -1059,7 +1060,7 @@ def _excel_pie_image(
     ax.set_facecolor("white")
 
     def autopct(pct):
-        return f"{pct:.1f}%" if pct >= 3 else ""
+        return f"{pct:.1f}%" if pct >= 5 else ""
 
     wedges, _, autotexts = ax.pie(
         values,
@@ -1068,7 +1069,7 @@ def _excel_pie_image(
         colors=palette,
         autopct=autopct,
         pctdistance=0.72,
-        wedgeprops={"edgecolor": "white", "linewidth": 1.2},
+        wedgeprops={"edgecolor": "white", "linewidth": 2, "width": 0.36},
     )
 
     for txt in autotexts:
@@ -1077,17 +1078,7 @@ def _excel_pie_image(
         txt.set_weight("bold")
 
     ax.axis("equal")
-    ax.legend(
-        wedges,
-        labels,
-        loc="lower center",
-        bbox_to_anchor=(0.5, -0.18),
-        ncol=2,
-        frameon=False,
-        fontsize=7,
-        handlelength=1.0,
-        columnspacing=1.2,
-    )
+    ax.text(0, 0, "100%\\nFATURAMENTO", ha="center", va="center",\n            fontsize=10, color="#17365D", fontweight="bold")
 
     fig.suptitle(
         title,
@@ -1105,7 +1096,7 @@ def _excel_pie_image(
         fontsize=8.2,
         color="#475569",
     )
-    fig.subplots_adjust(top=0.82, bottom=0.25, left=0.06, right=0.94)
+    fig.subplots_adjust(top=0.82, bottom=0.07, left=0.06, right=0.94)
 
     buffer = io.BytesIO()
     fig.savefig(
@@ -1390,6 +1381,13 @@ def formatted_xlsx_bytes(
         else 0
     )
 
+    active_mask_export = products["vendas_periodo"] > 0
+    active_stock_export = float(products.loc[active_mask_export, "estoque"].clip(lower=0).sum())
+    sold_units_export = float(products.loc[active_mask_export, "vendas_periodo"].sum())
+    daily_export = sold_units_export / period_days if period_days > 0 else 0
+    months_export = active_stock_export / daily_export / 30 if daily_export > 0 else None
+    inactive_stock_export = float(products.loc[~active_mask_export, "estoque"].clip(lower=0).sum())
+
     revenue_col = "faturamento_analise"
     best_sales = summary.loc[summary[revenue_col].idxmax()] if not summary.empty else None
     biggest_excess = (
@@ -1515,6 +1513,31 @@ def formatted_xlsx_bytes(
         ws["K6"].number_format = '#,##0.00'
         ws["M6"].number_format = 'R$ #,##0.00'
 
+        ws.merge_cells("A7:D7")
+        ws["A7"] = "DURAÇÃO GERAL DO ESTOQUE (MESES)"
+        ws["A7"].font = Font(color=NAVY, bold=True, size=10)
+        ws["A7"].alignment = Alignment(horizontal="center")
+        ws.merge_cells("A8:D8")
+        ws["A8"] = round(months_export, 2) if months_export is not None else "Sem consumo"
+        ws["A8"].font = Font(color=NAVY, bold=True, size=17)
+        ws["A8"].alignment = Alignment(horizontal="center")
+        if months_export is not None:
+            ws["A8"].number_format = '0.0" meses"'
+        ws.merge_cells("E7:J7")
+        ws["E7"] = "Consumo médio diário (un.)"
+        ws["E7"].alignment = Alignment(horizontal="center")
+        ws.merge_cells("E8:J8")
+        ws["E8"] = round(daily_export, 2)
+        ws["E8"].number_format = '#,##0.0'
+        ws["E8"].alignment = Alignment(horizontal="center")
+        ws.merge_cells("K7:O7")
+        ws["K7"] = "Estoque com vendas (un.)"
+        ws["K7"].alignment = Alignment(horizontal="center")
+        ws.merge_cells("K8:O8")
+        ws["K8"] = active_stock_export
+        ws["K8"].number_format = '#,##0'
+        ws["K8"].alignment = Alignment(horizontal="center")
+
         # Títulos das duas tabelas centrais.
         ws.merge_cells("A9:F9")
         ws["A9"] = "SITUAÇÃO DE COBERTURA"
@@ -1635,6 +1658,72 @@ def formatted_xlsx_bytes(
             ws.cell(row, 5).alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
 
         ws.freeze_panes = None
+
+        # Gráficos e dados de apoio do dashboard: mesmas bases utilizadas no app.
+        charts_ws = wb.create_sheet("GRAFICOS", 1)
+        charts_ws.sheet_view.showGridLines = False
+        for letter in "ABCDEFGHIJKLMNO":
+            charts_ws.column_dimensions[letter].width = 15
+        charts_ws.column_dimensions["A"].width = 30
+        charts_ws.column_dimensions["B"].width = 20
+        charts_ws.column_dimensions["C"].width = 20
+        charts_ws.merge_cells("A1:O2")
+        charts_ws["A1"] = "NEXO | GRÁFICOS GERENCIAIS"
+        charts_ws["A1"].fill = PatternFill("solid", fgColor=NAVY)
+        charts_ws["A1"].font = Font(color=WHITE, bold=True, size=19)
+        charts_ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+        charts_ws.merge_cells("A3:O3")
+        charts_ws["A3"] = f"Faturamento e cobertura • período de {period_days} dias • valores provenientes dos dados importados"
+        charts_ws["A3"].alignment = Alignment(horizontal="center")
+
+        revenue_lines = summary[["linha", "faturamento_analise"]].copy()
+        revenue_lines = revenue_lines[revenue_lines["faturamento_analise"] > 0]
+        revenue_lines = revenue_lines.sort_values("faturamento_analise", ascending=False)
+        revenue_image = _excel_pie_image(
+            revenue_lines["linha"].tolist(),
+            revenue_lines["faturamento_analise"].tolist(),
+            "Faturamento por linha",
+            f"Participação das linhas no faturamento de {period_days} dias.",
+            colors=[LINE_CHART_COLORS[
+                summary["linha"].tolist().index(name) % len(LINE_CHART_COLORS)
+            ] for name in revenue_lines["linha"]],
+        )
+        if revenue_image is not None:
+            charts_ws.add_image(XLImage(revenue_image), "A5")
+        else:
+            charts_ws["A5"] = "Sem faturamento positivo no período."
+
+        abc_image = _excel_abc_compare_image(products, period_days)
+        charts_ws.add_image(XLImage(abc_image), "I5")
+
+        legend_row = 33
+        charts_ws.cell(legend_row, 1, "LINHA")
+        charts_ws.cell(legend_row, 2, "FATURAMENTO (R$)")
+        charts_ws.cell(legend_row, 3, "PARTICIPAÇÃO (%)")
+        total_lines = float(revenue_lines["faturamento_analise"].sum())
+        for idx, (_, item) in enumerate(revenue_lines.iterrows(), legend_row + 1):
+            charts_ws.cell(idx, 1, str(item["linha"]))
+            charts_ws.cell(idx, 2, float(item["faturamento_analise"]))
+            charts_ws.cell(idx, 2).number_format = 'R$ #,##0.00'
+            charts_ws.cell(idx, 3, float(item["faturamento_analise"]) / total_lines if total_lines else 0)
+            charts_ws.cell(idx, 3).number_format = '0.0%'
+        _style_header(charts_ws, legend_row)
+
+        notes_row = max(legend_row + len(revenue_lines) + 3, 42)
+        charts_ws.cell(notes_row, 1, "COBERTURA GERAL (MESES)")
+        charts_ws.cell(notes_row, 2, months_export if months_export is not None else "Sem consumo")
+        if months_export is not None:
+            charts_ws.cell(notes_row, 2).number_format = '0.0'
+        charts_ws.cell(notes_row + 1, 1, "Consumo diário (un.)")
+        charts_ws.cell(notes_row + 1, 2, daily_export)
+        charts_ws.cell(notes_row + 2, 1, "Estoque com vendas (un.)")
+        charts_ws.cell(notes_row + 2, 2, active_stock_export)
+        charts_ws.cell(notes_row + 3, 1, "Estoque sem vendas (un.)")
+        charts_ws.cell(notes_row + 3, 2, inactive_stock_export)
+        charts_ws.merge_cells(start_row=notes_row + 5, start_column=1,
+                              end_row=notes_row + 5, end_column=12)
+        charts_ws.cell(notes_row + 5, 1,
+            "Estimativa: estoque dos produtos com vendas / consumo diário / 30. Exclui produtos sem vendas; não prevê reposições futuras.")
 
         # Aba detalhada de produtos.
         s = wb["PRODUTOS"]
