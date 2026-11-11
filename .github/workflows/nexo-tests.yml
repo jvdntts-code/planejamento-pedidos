@@ -16,6 +16,6 @@ jobs:
       - name: Instalar dependências
         run: pip install -r requirements.txt
       - name: Conferir sintaxe
-        run: python -m compileall -q app.py line_analysis_v2.py management_dashboard.py stock_projection.py
+        run: python -m compileall -q app.py line_analysis_v2.py management_dashboard.py stock_projection.py sellout_module.py pendencias_module.py orders_module.py tasks_module.py auth_module.py
       - name: Testar métricas gerenciais
         run: python -m unittest discover -s tests -v
