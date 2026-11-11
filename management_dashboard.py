@@ -92,6 +92,192 @@ def build_management_snapshot(products, period_days):
     }
 
 
+
+def build_decision_center(products, period_days):
+    """Fila de conferência a partir dos campos já importados; não sugere compras."""
+    if period_days <= 0:
+        raise ValueError("O período de análise deve ser positivo.")
+    required = {
+        "codigo", "descricao", "linha", "curva_abc", "status",
+        "estoque", "vendas_periodo", "cobertura_dias", "faturamento_periodo",
+    }
+    missing = required - set(products.columns)
+    if missing:
+        raise ValueError("Colunas ausentes: " + ", ".join(sorted(missing)))
+    df = products.copy()
+    for field in ("estoque", "vendas_periodo", "cobertura_dias", "faturamento_periodo"):
+        df[field] = pd.to_numeric(df[field], errors="coerce")
+    df["estoque"] = df["estoque"].fillna(0)
+    df["vendas_periodo"] = df["vendas_periodo"].fillna(0)
+    df["faturamento_periodo"] = df["faturamento_periodo"].fillna(0)
+
+    # Usar as faixas ABC e de cobertura já configuradas pelo usuário no NEXO.
+    availability_mask = (
+        df["vendas_periodo"].gt(0)
+        & df["status"].isin(["RUPTURA", "RISCO DE RUPTURA", "ALERTA"])
+    )
+    review_mask = df["status"].isin([
+        "ALTO", "EXCESSO", "SEM VENDA - ESTOQUE PARADO"
+    ])
+    codes = df["codigo"].fillna("").astype(str).str.strip()
+    repeated = codes.ne("") & codes.duplicated(keep=False)
+    negative = df["estoque"].lt(0)
+    unpriced = (
+        (pd.to_numeric(df["preco_venda"], errors="coerce").fillna(0) <= 0)
+        & df["vendas_periodo"].gt(0)
+        if "preco_venda" in df.columns
+        else pd.Series(False, index=df.index)
+    )
+    provisional = (
+        df["preco_venda_origem"].fillna("").astype(str)
+        .str.contains("custo usado provisoriamente", case=False, regex=False)
+        if "preco_venda_origem" in df.columns
+        else pd.Series(False, index=df.index)
+    )
+    quality_mask = repeated | negative | unpriced | provisional | codes.eq("")
+
+    risk = df.loc[availability_mask].copy()
+    risk["Motivo"] = risk["status"].map({
+        "RUPTURA": "Estoque zerado com vendas no período",
+        "RISCO DE RUPTURA": "Cobertura abaixo da faixa de risco configurada",
+        "ALERTA": "Cobertura na faixa de alerta configurada",
+    })
+    review = df.loc[review_mask].copy()
+    review["Motivo"] = review["status"].map({
+        "ALTO": "Cobertura acima da faixa OK configurada",
+        "EXCESSO": "Cobertura acima do limite ALTO configurado",
+        "SEM VENDA - ESTOQUE PARADO": f"Sem vendas em {period_days} dias e com estoque",
+    })
+    quality = df.loc[quality_mask].copy()
+    reasons = []
+    for idx in quality.index:
+        flags = []
+        if bool(negative.loc[idx]):
+            flags.append("Estoque negativo")
+        if bool(unpriced.loc[idx]):
+            flags.append("Sem preço de venda válido")
+        if bool(provisional.loc[idx]):
+            flags.append("Preço de custo usado como preço de venda")
+        if bool(repeated.loc[idx]):
+            flags.append("Código repetido na base")
+        if not codes.loc[idx]:
+            flags.append("Código vazio")
+        reasons.append("; ".join(flags))
+    quality["Motivo"] = reasons
+
+    rank_abc = {"A": 0, "B": 1, "C": 2}
+    risk_rank = {"RUPTURA": 0, "RISCO DE RUPTURA": 1, "ALERTA": 2}
+    review_rank = {
+        "EXCESSO": 0, "SEM VENDA - ESTOQUE PARADO": 1, "ALTO": 2
+    }
+    risk["_status"] = risk["status"].map(risk_rank).fillna(3)
+    risk["_abc"] = risk["curva_abc"].map(rank_abc).fillna(3)
+    risk = risk.sort_values(
+        ["_status", "_abc", "faturamento_periodo"],
+        ascending=[True, True, False], kind="stable"
+    ).drop(columns=["_status", "_abc"])
+    review["_status"] = review["status"].map(review_rank).fillna(3)
+    review = review.sort_values(
+        ["_status", "estoque"], ascending=[True, False], kind="stable"
+    ).drop(columns="_status")
+    quality = quality.sort_values(
+        ["estoque"], ascending=False, kind="stable"
+    )
+    return {
+        "availability": risk,
+        "review": review,
+        "quality": quality,
+        "availability_ab": int(
+            (availability_mask & df["curva_abc"].isin(["A", "B"])).sum()
+        ),
+        "review_units": float(df.loc[review_mask, "estoque"].clip(lower=0).sum()),
+        "period_days": period_days,
+    }
+
+
+def render_decision_center(products, period_days, integer):
+    """Três perguntas gerenciais, com justificativas verificáveis por produto."""
+    import streamlit as st
+
+    findings = build_decision_center(products, period_days)
+    st.markdown("#### Central de atenção do comprador")
+    st.caption(
+        "Informações extraídas da base importada, usando as faixas de cobertura e "
+        "as curvas ABC configuradas. Não considera pedidos em aberto ou prazos de entrega."
+    )
+
+    a, b, c = st.columns(3)
+    with a:
+        with st.container(border=True):
+            st.markdown("**Conferir abastecimento**")
+            st.metric("Itens em ruptura, risco ou alerta", integer(len(findings["availability"])))
+            st.caption(
+                f"{integer(findings['availability_ab'])} pertencem às curvas A/B. "
+                "Verifique estoque físico e reposições antes de comprar."
+            )
+    with b:
+        with st.container(border=True):
+            st.markdown("**Revisar novas compras**")
+            st.metric("Itens com cobertura alta ou sem vendas", integer(len(findings["review"])))
+            st.caption(
+                f"{integer(findings['review_units'])} unidades nesses itens. "
+                "A classificação não significa que a compra deva ser bloqueada."
+            )
+    with c:
+        with st.container(border=True):
+            st.markdown("**Conferir os dados**")
+            st.metric("Registros com pontos a verificar", integer(len(findings["quality"])))
+            st.caption(
+                "Saldos negativos, códigos repetidos ou preços inexistentes/provisórios, "
+                "quando identificados na base."
+            )
+
+    tab_risk, tab_review, tab_quality = st.tabs([
+        "Abastecimento", "Cobertura elevada / sem vendas", "Inconsistências"
+    ])
+    for tab, key, no_items in (
+        (tab_risk, "availability", "Nenhum item em ruptura, risco ou alerta."),
+        (tab_review, "review", "Nenhum item com cobertura alta ou sem vendas."),
+        (tab_quality, "quality", "Nenhuma inconsistência desse tipo foi identificada."),
+    ):
+        with tab:
+            selected = findings[key]
+            if selected.empty:
+                st.caption(no_items)
+                continue
+            fields = [
+                "codigo", "descricao", "curva_abc", "status",
+                "estoque", "vendas_periodo", "cobertura_dias", "Motivo"
+            ]
+            shown = selected[fields].head(8).rename(columns={
+                "codigo": "Código", "descricao": "Produto",
+                "curva_abc": "ABC", "status": "Situação",
+                "estoque": "Estoque atual",
+                "vendas_periodo": f"Vendas {period_days}d",
+                "cobertura_dias": "Cobertura (dias)",
+            })
+            st.dataframe(
+                shown, hide_index=True, use_container_width=True,
+                column_config={
+                    "Cobertura (dias)": st.column_config.NumberColumn(format="%.1f"),
+                    f"Vendas {period_days}d": st.column_config.NumberColumn(format="%.1f"),
+                },
+            )
+            if len(selected) > 8:
+                st.caption(
+                    f"Mostrando 8 de {integer(len(selected))} registros. "
+                    "Para consultar o restante, abra 'Explorar dados e relatórios'."
+                )
+            else:
+                st.caption("As informações acima são conferências sugeridas, não pedidos de compra.")
+    st.caption(
+        "Atenção: 'sem vendas' refere-se somente ao período analisado. "
+        "A Curva ABC depende da qualidade dos preços importados; cobertura é uma "
+        "estimativa histórica, não uma previsão garantida."
+    )
+
+
+
 def render_management_overview(products, period_days, analysis_name, brl, integer):
     import streamlit as st
 
@@ -127,52 +313,7 @@ def render_management_overview(products, period_days, analysis_name, brl, intege
             "Confira os saldos antes de utilizá-los para decisões de compra."
         )
 
-    st.markdown("#### O que merece atenção")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        with st.container(border=True):
-            st.markdown("**Disponibilidade**")
-            st.metric("Ruptura/risco · todas as curvas", integer(data["urgency_all"]))
-            st.caption(
-                f"{integer(data['urgency_ab'])} desses itens são A/B. "
-                f"Outros {integer(data['attention_all'] - data['urgency_all'])} "
-                "produtos estão classificados como ALERTA."
-            )
-            st.caption("Conferir estoque físico e pedidos em aberto antes de decidir reposições.")
-    with c2:
-        with st.container(border=True):
-            st.markdown("**Cobertura elevada**")
-            st.metric("Produtos ALTO ou EXCESSO", integer(data["high_count"]))
-            st.caption(f"{integer(data['high_units'])} unidades desses produtos em estoque.")
-            st.caption("Revisar a necessidade de novas compras desses itens.")
-    with c3:
-        with st.container(border=True):
-            st.markdown("**Sem movimentação de vendas**")
-            st.metric(f"Sem vendas em {period_days} dias", integer(data["idle_count"]))
-            st.caption(f"{integer(data['idle_units'])} unidades paradas no período.")
-            st.caption("Verificar demanda, cadastro e histórico antes de reabastecer.")
-
-    st.markdown("#### Produtos para conferir primeiro")
-    if data["top_attention"].empty:
-        st.success("Nenhum produto foi classificado como ruptura, risco ou alerta neste período.")
-    else:
-        view = data["top_attention"].rename(columns={
-            "codigo": "Código", "descricao": "Descrição", "linha": "Linha",
-            "curva_abc": "ABC", "status": "Situação", "estoque": "Estoque",
-            "cobertura_dias": "Cobertura (dias)",
-            "faturamento_periodo": "Faturamento calculado",
-        })
-        st.dataframe(
-            view, use_container_width=True, hide_index=True,
-            column_config={
-                "Cobertura (dias)": st.column_config.NumberColumn(format="%.1f"),
-                "Faturamento calculado": st.column_config.NumberColumn(format="R$ %.2f"),
-            },
-        )
-        st.caption(
-            "Até 8 produtos, priorizando curvas A/B, rupturas e riscos. "
-            "É uma lista de conferência, não um pedido automático."
-        )
+    render_decision_center(products, period_days, integer)
 
     g1, g2 = st.columns([1.1, 1])
     with g1:
