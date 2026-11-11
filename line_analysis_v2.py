@@ -1696,7 +1696,7 @@ def formatted_xlsx_bytes(
         abc_image = _excel_abc_compare_image(products, period_days)
         charts_ws.add_image(XLImage(abc_image), "I5")
 
-        legend_row = 33
+        legend_row = 49
         charts_ws.cell(legend_row, 1, "LINHA")
         charts_ws.cell(legend_row, 2, "FATURAMENTO (R$)")
         charts_ws.cell(legend_row, 3, "PARTICIPAÇÃO (%)")
@@ -1709,7 +1709,7 @@ def formatted_xlsx_bytes(
             charts_ws.cell(idx, 3).number_format = '0.0%'
         _style_header(charts_ws, legend_row)
 
-        notes_row = max(legend_row + len(revenue_lines) + 3, 42)
+        notes_row = max(legend_row + len(revenue_lines) + 3, 60)
         charts_ws.cell(notes_row, 1, "COBERTURA GERAL (MESES)")
         charts_ws.cell(notes_row, 2, months_export if months_export is not None else "Sem consumo")
         if months_export is not None:
