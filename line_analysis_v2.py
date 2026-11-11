@@ -2326,9 +2326,6 @@ def render_analise_linha():
     )
 
     products, summary = build_line_analysis(base, period_days, criteria, long_days)
-    from stock_projection import render_projection
-    render_projection(products, period_days, classify_coverage, criteria)
-
     revenue_col = "faturamento_analise"
 
     total_revenue = float(products["faturamento_periodo"].sum())
@@ -2353,7 +2350,8 @@ def render_analise_linha():
     from stock_verdict import render_brand_verdict
     render_brand_verdict(products)
 
-    st.markdown("### Painel gerencial")
+    st.divider()
+    st.markdown("### Visão geral da marca")
 
     curve_counts = products["curva_abc"].value_counts()
     top1, top2, top3, top4 = st.columns(4)
@@ -2394,9 +2392,17 @@ def render_analise_linha():
     )
 
 
-    left_panel, right_panel = st.columns([1, 1.25])
+    st.divider()
+    with st.expander("Projeção de estoque por data", expanded=False):
+        from stock_projection import render_projection
+        render_projection(products, period_days, classify_coverage, criteria)
 
-    with left_panel:
+    st.divider()
+    st.markdown("### Diagnóstico e distribuição do estoque")
+
+    situation_tab, abc_tab = st.tabs(["Situação de cobertura", "Curva ABC"])
+
+    with situation_tab:
         st.markdown("#### Situação de Cobertura")
         st.dataframe(
             status_panel,
@@ -2411,7 +2417,7 @@ def render_analise_linha():
             },
         )
 
-    with right_panel:
+    with abc_tab:
         st.markdown("#### Curva ABC")
         st.dataframe(
             abc_panel,
@@ -2432,7 +2438,7 @@ def render_analise_linha():
             },
         )
 
-    st.markdown("#### Prioridades Gerenciais")
+    st.markdown("#### Prioridades gerenciais")
     st.dataframe(
         priorities_panel,
         use_container_width=True,
@@ -2443,6 +2449,8 @@ def render_analise_linha():
         },
     )
 
+    st.divider()
+    st.markdown("### Gráficos e indicadores")
     with st.expander("Explorar gráficos e indicadores", expanded=True):
         line_domain = summary["linha"].tolist()
         line_colors = [
@@ -2791,7 +2799,8 @@ def render_analise_linha():
                 },
             )
 
-    st.markdown("### Detalhamento")
+    st.divider()
+    st.markdown("### Detalhamento por produto")
     selected_line = st.selectbox(
         "Escolha uma linha para detalhar",
         ["Todas as linhas"] + summary["linha"].tolist(),
