@@ -867,11 +867,17 @@ def render_pendencias():
         "Importe a relação geral e analise frequência, idade, marcas, criticidade e ajustes dentro do NEXO."
     )
 
-    uploaded = st.file_uploader(
-        "Relação geral de pendências",
-        type=["xlsx", "xls", "csv"],
-        key="pending_general_file_v1",
-    )
+    with st.sidebar.expander(
+        "📁 Relação de Pendências",
+        expanded=not bool(st.session_state.get("pending_general_file_v1")),
+    ):
+        uploaded = st.file_uploader(
+            "Relação geral de pendências",
+            type=["xlsx", "xls", "csv"],
+            key="pending_general_file_v1",
+        )
+        if uploaded:
+            st.caption("✓ Relatório selecionado")
     if not uploaded:
         st.info("Importe a relação bruta de pendências para iniciar a análise.")
         return
@@ -896,7 +902,7 @@ def render_pendencias():
 
     brands_all = sorted(set(positive["MARCA"]) | set(prefs.get("marcas_sem_pendencia", [])))
 
-    with st.expander("Configuração da análise", expanded=True):
+    with st.expander("Configuração da análise", expanded=False):
         a, b = st.columns([1, 1.5])
         grace = a.number_input(
             "Considerar pendência após quantos dias?",
