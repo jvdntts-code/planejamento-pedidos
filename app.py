@@ -20,85 +20,60 @@ AUTH_STATE = require_login()
 
 st.markdown("""
 <style>
-html, body, .stApp,
-.stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6,
-.stApp p, .stApp label, .stApp button, .stApp input, .stApp textarea,
-.stApp select, .stApp table, .stApp th, .stApp td,
-[data-testid="stSidebar"] {
-    font-family: "Times New Roman", Times, serif !important;
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
+html, body, .stApp, .stApp button, .stApp input, .stApp textarea,
+.stApp select, .stApp label, [data-testid="stSidebar"] {
+    font-family: 'DM Sans', system-ui, -apple-system, sans-serif !important;
 }
-.block-container {padding-top: 1.4rem; padding-bottom: 3rem; max-width: 1500px;}
-div[data-testid="metric-container"] {
-    border:1px solid rgba(128,128,128,.18);
-    border-radius:10px;
-    padding:14px 16px;
-    background:transparent;
-}
-[data-testid="stSidebar"] {
-    border-right:1px solid rgba(128,128,128,.14);
-}
-section[data-testid="stSidebar"] > div {
-    height:100%;
-}
+.block-container {max-width: 1480px; padding-top: 1.6rem; padding-bottom: 3rem;}
+h1, h2, h3 {letter-spacing: -.035em !important; font-weight: 750 !important;}
+h1 {font-size: clamp(1.8rem, 3vw, 2.35rem) !important;}
+h2 {font-size: 1.45rem !important;}
+h3 {font-size: 1.15rem !important;}
+[data-testid="stSidebar"] {border-right: 1px solid rgba(128,128,128,.15);}
 section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
-    min-height:100vh;
-    display:flex;
-    flex-direction:column;
+    min-height: 100vh; display: flex; flex-direction: column;
 }
-.nexo-sidebar-spacer {
-    flex:1 1 auto;
-    min-height:28vh;
+.nexo-sidebar-spacer {flex:1 1 auto; min-height: 20vh;}
+.nexo-sidebar-account {font-size:.78rem; opacity:.7; margin:0 0 8px 2px;}
+.nexo-brand {padding: 10px 4px 20px; border-bottom:1px solid rgba(128,128,128,.16); margin-bottom:16px;}
+.nexo-title {font-size:1.7rem; line-height:1; font-weight:800; letter-spacing:-.065em;}
+.nexo-by {font-size:.72rem; opacity:.62; margin-left:7px; letter-spacing:.02em;}
+.nexo-subtitle {font-size:.75rem; opacity:.7; margin-top:10px;}
+[data-testid="stSidebar"] [role="radiogroup"] {gap: .25rem;}
+[data-testid="stSidebar"] [role="radiogroup"] label {
+    padding: .5rem .6rem; border-radius: 9px; transition: background .15s ease;
 }
-.nexo-sidebar-account {
-    font-size:.78rem;
-    opacity:.7;
-    margin: 0 0 8px 2px;
+[data-testid="stSidebar"] [role="radiogroup"] label:hover {background:rgba(128,128,128,.09);}
+[data-testid="stMetric"] {
+    border:1px solid rgba(128,128,128,.17); border-radius:13px;
+    padding:16px 18px; background:rgba(128,128,128,.035);
 }
+[data-testid="stMetricLabel"] {font-size:.83rem; opacity:.8;}
+[data-testid="stMetricValue"] {font-weight:750; letter-spacing:-.04em;}
 .stButton > button, .stDownloadButton > button {
-    border-radius:8px !important;
-    box-shadow:none !important;
+    border-radius:9px !important; box-shadow:none !important; font-weight:650 !important;
 }
-div[data-testid="stExpander"] {
-    border:1px solid rgba(128,128,128,.16);
-    border-radius:10px;
-    box-shadow:none;
+div[data-testid="stExpander"], [data-testid="stForm"] {
+    border:1px solid rgba(128,128,128,.17); border-radius:12px; box-shadow:none;
 }
-.small {font-size:.88rem; opacity:.78}
-.nexo-brand {
-    border: 0;
-    border-bottom: 1px solid rgba(128,128,128,.16);
-    border-radius: 0;
-    padding: 8px 4px 16px 4px;
-    margin-bottom: 18px;
-    background: transparent;
+[data-testid="stDataFrame"] {border-radius:10px; overflow:hidden;}
+[data-testid="stTabs"] [role="tablist"] {gap:.4rem;}
+[data-testid="stTabs"] button[role="tab"] {font-weight:600;}
+.nexo-hero {padding:12px 0 24px; margin-bottom:18px; border-bottom:1px solid rgba(128,128,128,.16);}
+.nexo-hero h1 {margin:0; font-size:2.45rem !important; letter-spacing:-.065em !important;}
+.nexo-hero p {margin:9px 0 0; opacity:.7; font-size:.94rem;}
+.nexo-eyebrow {font-size:.72rem; letter-spacing:.12em; font-weight:750; opacity:.65; margin-bottom:10px;}
+.nexo-card {padding:21px 22px; border:1px solid rgba(128,128,128,.17); border-radius:14px;
+    background:rgba(128,128,128,.025); min-height:150px; margin-bottom:12px;}
+.nexo-card-title {font-weight:750; font-size:1.03rem; letter-spacing:-.02em; margin-bottom:10px;}
+.nexo-card-text {opacity:.72; font-size:.88rem; line-height:1.6;}
+.nexo-section-caption {opacity:.7; font-size:.87rem; margin-bottom:16px;}
+@media (max-width: 768px) {
+    .block-container {padding:1rem .8rem 2rem;}
+    .nexo-hero h1 {font-size:1.95rem !important;}
+    .nexo-card {min-height:0; padding:17px;}
 }
-.nexo-title {
-    font-size: 1.65rem;
-    line-height: 1;
-    font-weight: 800;
-    letter-spacing: .08em;
-}
-.nexo-by {
-    font-size: .72rem;
-    opacity: .65;
-    margin-left: 4px;
-    letter-spacing: .06em;
-}
-.nexo-subtitle {
-    font-size: .78rem;
-    opacity: .72;
-    margin-top: 8px;
-}
-.nexo-hero {
-    border: 0;
-    border-bottom: 1px solid rgba(128,128,128,.16);
-    border-radius: 0;
-    padding: 20px 0 22px 0;
-    margin-bottom: 24px;
-    background: transparent;
-}
-.nexo-hero h1 {margin: 0; font-size: 2.2rem; letter-spacing: .06em;}
-.nexo-hero p {margin: 8px 0 0 0; opacity: .72;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -136,38 +111,36 @@ def render_inicio():
     st.markdown(
         """
         <div class="nexo-hero">
-            <h1>NEXO <span style="font-size:.9rem;opacity:.55">by JVN</span></h1>
-            <p>Gestão • Planejamento • Inteligência</p>
+            <div class="nexo-eyebrow">CENTRAL DE GESTÃO</div>
+            <h1>NEXO <span style="font-size:.9rem;opacity:.55;letter-spacing:0">by JVN</span></h1>
+            <p>Planejamento de compras, análise de estoque e acompanhamento operacional em um só lugar.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    st.subheader("Sua central de trabalho")
-    if IS_ADMIN:
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.info("**Planejamento de Pedido**\n\nCalcule necessidades e gere pedidos com memória de cálculo.")
-        with c2:
-            st.info("**Análise de Linha**\n\nAvalie Curva ABC, cobertura, ruptura, risco, alto e excesso.")
-        with c3:
-            st.info("**Minhas Tarefas**\n\nOrganize trabalho, faculdade e vida pessoal com prazos e lembretes.")
-    else:
-        c1, c2 = st.columns(2)
-        with c1:
-            st.info("**Planejamento de Pedido**\n\nCalcule necessidades e gere pedidos com memória de cálculo.")
-        with c2:
-            st.info("**Análise de Linha**\n\nAvalie Curva ABC, cobertura, ruptura, risco, alto e excesso.")
+    st.subheader("Áreas de trabalho")
+    st.markdown('<div class="nexo-section-caption">Selecione um módulo no menu lateral para começar. Os resultados são calculados a partir dos dados importados em cada área.</div>', unsafe_allow_html=True)
 
-    st.markdown("### Próximos módulos")
-    p1, p2 = st.columns(2)
-    with p1:
-        st.container(border=True).markdown(
-            "**Análise de Pendências**\n\nAnalise recorrência, idade, marcas e pendências críticas diretamente no NEXO."
-        )
-    with p2:
-        st.container(border=True).markdown(
-            "**Gestão de Pedidos**\n\nAcompanhamento do pedido desde a emissão até o recebimento e finalização."
-        )
+    cards = [
+        ("Planejamento de Pedido", "Calcule necessidades de compra por filial, considere lead time e pendências e exporte a memória de cálculo."),
+        ("Análise de Linha", "Acompanhe curva ABC, cobertura em dias, ruptura, risco, alerta e excesso de estoque."),
+        ("Análise de Sell-out", "Compare vendas, quantidades e faturamento entre produtos, marcas, lojas e períodos."),
+        ("Análise de Pendências", "Concilie dados do fornecedor e do sistema e identifique diferenças e pendências críticas."),
+        ("Gestão de Pedidos", "Consulte pedidos, documentos, histórico dos fornecedores e acompanhamento de recebimento."),
+    ]
+    if IS_ADMIN:
+        cards.append(("Minhas Tarefas", "Organize atividades, prazos, prioridades e lembretes."))
+
+    for start in range(0, len(cards), 2):
+        columns = st.columns(2, gap="medium")
+        for column, (title, description) in zip(columns, cards[start:start + 2]):
+            with column:
+                st.markdown(
+                    f'<div class="nexo-card"><div class="nexo-card-title">{title}</div>'
+                    f'<div class="nexo-card-text">{description}</div></div>',
+                    unsafe_allow_html=True,
+                )
+    st.caption("Os indicadores e relatórios dependem da qualidade e da atualização dos arquivos importados. O NEXO não utiliza valores demonstrativos como resultados reais.")
 
 def render_em_construcao(titulo, descricao):
     st.title(titulo)
