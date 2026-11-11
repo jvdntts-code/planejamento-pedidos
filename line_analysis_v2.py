@@ -1326,6 +1326,11 @@ def _executive_panel_tables(products, period_days):
             "Planejar reposição antes de entrar em ruptura",
         ),
         (
+            "Alerta",
+            products["status"].eq("ALERTA"),
+            "Acompanhar a cobertura e antecipar a avaliação de reposição",
+        ),
+        (
             "Estoque alto ou excessivo",
             products["status"].isin(["ALTO", "EXCESSO"]),
             "Reduzir compras e acelerar escoamento",
@@ -2629,11 +2634,11 @@ def render_analise_linha():
     with tab1:
         crit_kind = st.radio(
             "Visualizar",
-            ["Ruptura / Risco", "Alto / Excesso", "Estoque parado"],
+            ["Ruptura / Risco / Alerta", "Alto / Excesso", "Estoque parado"],
             horizontal=True,
             key="criticos_v2",
         )
-        if crit_kind == "Ruptura / Risco":
+        if crit_kind == "Ruptura / Risco / Alerta":
             filtered = products_filtered[
                 products_filtered["status"].isin(["RUPTURA", "RISCO DE RUPTURA", "ALERTA"])
             ].copy()
