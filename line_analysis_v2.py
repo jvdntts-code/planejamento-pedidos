@@ -1965,44 +1965,39 @@ def render_analise_linha():
         "e produtos parados — direto do relatório bruto do sistema."
     )
 
-    with st.expander(
-        "📁 Importar ou trocar relatórios",
+    # Importação compacta na barra lateral: mantém o dashboard livre para análise.
+    with st.sidebar.expander(
+        "📁 Arquivos da Análise de Linha",
         expanded=not bool(st.session_state.get("linha_raw_v2")),
     ):
-        st.caption(
-            "Acesse os relatórios no Metabase, faça o download e importe cada arquivo no campo correspondente."
+        uploaded = st.file_uploader(
+            "Lista de Produtos por Marca",
+            type=["xlsx", "xls", "csv"],
+            key="linha_raw_v2",
+            help="Relatório principal, com estoque e histórico de vendas.",
         )
-        link1, link2 = st.columns(2)
-        with link1:
+        sales_price_file = st.file_uploader(
+            "Vendas Produtos (preços de venda)",
+            type=["xlsx", "xls", "csv"],
+            key="linha_sales_price_v2",
+            help="Opcional. Atualiza os preços de venda pelo código do produto.",
+        )
+        if uploaded is not None:
+            st.caption("✓ Lista de produtos importada")
+        if sales_price_file is not None:
+            st.caption("✓ Vendas Produtos importado")
+
+        if st.checkbox("Links, modelo e orientações", key="linha_import_ajuda"):
             st.link_button(
-                "Abrir Lista de Produtos por Marca",
+                "Lista de Produtos no Metabase",
                 "http://metabase.samarc.com.br/question/510-lista-de-produtos-por-marca?marca=",
                 use_container_width=True,
             )
-        with link2:
             st.link_button(
-                "Abrir Vendas Produtos",
+                "Vendas Produtos no Metabase",
                 "http://metabase.samarc.com.br/question/1540-vendas-produtos?Data2=&Periodo=&Descricao=&similar=&Grupo=&Data1=&Total_Vendido=&Descricao_Precisa=&Codigo_interno=&Marca=&Aplicacao=",
                 use_container_width=True,
             )
-
-        col_import, col_modelo = st.columns([2.2, 1])
-        with col_import:
-            uploaded = st.file_uploader(
-                "Lista de Produtos por Marca",
-                type=["xlsx", "xls", "csv"],
-                key="linha_raw_v2",
-                help="Importe o relatório bruto da Lista de Produtos por Marca.",
-            )
-            sales_price_file = st.file_uploader(
-                "Vendas Produtos (opcional, para preço de venda)",
-                type=["xlsx", "xls", "csv"],
-                key="linha_sales_price_v2",
-                help="Quando importado, o NEXO cruza pelo código do produto e usa o preço de venda deste arquivo nas análises financeiras.",
-            )
-
-        with col_modelo:
-            st.markdown("**Primeira vez usando?**")
             st.download_button(
                 "Baixar modelo de importação",
                 data=line_import_template_bytes(),
@@ -2011,24 +2006,11 @@ def render_analise_linha():
                 use_container_width=True,
                 key="download_modelo_analise_linha",
             )
-
-        with st.expander("Como preparar o arquivo para a Análise de Linha"):
-            st.markdown(
-                """
-                **Para evitar erros na importação:**
-
-                - use o modelo oficial disponibilizado acima;
-                - mantenha os nomes dos cabeçalhos;
-                - coloque **um produto por linha**;
-                - informe código, descrição, referência, código da linha e nome da linha;
-                - estoque, mínimo e vendas devem ser valores numéricos;
-                - mantenha o preço de custo da Lista por Marca; para a análise financeira, você pode importar também o arquivo **Vendas Produtos**;
-                - mantenha as vendas acumuladas de **30, 60, 90 e 360/365 dias**;
-                - não coloque totais ou subtotais no meio da base;
-                - consulte as abas **INSTRUCOES**, **DICIONARIO** e **EXEMPLO** dentro do arquivo modelo.
-
-                O NEXO valida o relatório antes da análise e informa exatamente quais colunas obrigatórias estão faltando.
-                """
+            st.caption(
+                "Use um produto por linha, sem totais intermediários. "
+                "Mantenha código, descrição, linha, estoque, mínimo e as vendas "
+                "de 30, 60, 90 e 360/365 dias. Consulte as abas de instruções "
+                "do modelo para conferir os cabeçalhos."
             )
 
     if not uploaded:
