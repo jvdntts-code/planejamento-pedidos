@@ -11,7 +11,7 @@ import pandas as pd
 def _key(value):
     if pd.isna(value):
         return ""
-    return re.sub(r"[^A-Z0-9]+", "", re.sub(r"\\.0$", "", str(value).strip().upper()))
+    return re.sub(r"[^A-Z0-9]+", "", re.sub(r"\.0$", "", str(value).strip().upper()))
 
 
 def _field(df, *names):
