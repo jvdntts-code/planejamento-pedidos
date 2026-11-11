@@ -2323,7 +2323,7 @@ def render_analise_linha():
         },
     )
 
-    with st.expander("Ver gráficos", expanded=False):
+    with st.expander("Explorar gráficos e indicadores", expanded=True):
         line_domain = summary["linha"].tolist()
         line_colors = [
             LINE_CHART_COLORS[i % len(LINE_CHART_COLORS)]
@@ -2418,6 +2418,73 @@ def render_analise_linha():
             "view": {"stroke": None},
         }
 
+        st.markdown("#### Distribuição da cobertura")
+        st.caption("Quantidade de produtos por situação, conforme os limites das curvas A, B e C. Produtos sem vendas são apresentados separadamente.")
+        status_order_chart = [
+            "RUPTURA", "RISCO DE RUPTURA", "ALERTA", "OK", "ALTO",
+            "EXCESSO", "SEM VENDA - ESTOQUE PARADO", "SEM VENDA / SEM ESTOQUE",
+            "ESTOQUE NEGATIVO",
+        ]
+        status_counts_chart = (
+            products["status"].value_counts().reindex(status_order_chart, fill_value=0)
+            .rename_axis("Situação").reset_index(name="Produtos")
+        )
+        status_counts_chart = status_counts_chart[status_counts_chart["Produtos"] > 0]
+        if not status_counts_chart.empty:
+            status_chart_spec = {
+                "height": {"step": 30},
+                "mark": {"type": "bar", "cornerRadiusEnd": 5},
+                "encoding": {
+                    "y": {"field": "Situação", "type": "nominal", "sort": status_order_chart,
+                          "title": None, "axis": {"labelLimit": 240}},
+                    "x": {"field": "Produtos", "type": "quantitative", "title": "Quantidade de produtos",
+                          "axis": {"tickMinStep": 1}, "scale": {"zero": True}},
+                    "color": {"field": "Situação", "type": "nominal", "legend": None,
+                              "scale": {"domain": status_order_chart,
+                                        "range": ["#dc2626", "#f97316", "#eab308", "#16a34a",
+                                                  "#0d9488", "#6366f1", "#64748b", "#94a3b8", "#7f1d1d"]}},
+                    "tooltip": [
+                        {"field": "Situação", "type": "nominal"},
+                        {"field": "Produtos", "type": "quantitative", "format": ",.0f"},
+                    ],
+                },
+                "view": {"stroke": None},
+                "config": {"axis": {"gridColor": "#e5e7eb", "domain": False}},
+            }
+            st.vega_lite_chart(status_counts_chart, status_chart_spec, use_container_width=True)
+        else:
+            st.info("Sem produtos classificados para exibir.")
+
+        st.markdown("#### Concentração de faturamento por linha")
+        st.caption(f"Ranking das linhas por faturamento nos últimos {period_days} dias. Apenas valores positivos são exibidos.")
+        revenue_ranking = summary[["linha", revenue_col]].copy()
+        revenue_ranking[revenue_col] = pd.to_numeric(revenue_ranking[revenue_col], errors="coerce").fillna(0)
+        revenue_ranking = revenue_ranking[revenue_ranking[revenue_col] > 0].sort_values(revenue_col, ascending=False)
+        if not revenue_ranking.empty:
+            revenue_ranking["Faturamento (R$)"] = revenue_ranking[revenue_col].apply(brl)
+            revenue_spec = {
+                "height": {"step": 29},
+                "mark": {"type": "bar", "color": "#2563eb", "cornerRadiusEnd": 5},
+                "encoding": {
+                    "y": {"field": "linha", "type": "nominal", "sort": "-x", "title": None,
+                          "axis": {"labelLimit": 240}},
+                    "x": {"field": revenue_col, "type": "quantitative", "title": "Faturamento (R$)",
+                          "scale": {"zero": True}},
+                    "tooltip": [
+                        {"field": "linha", "type": "nominal", "title": "Linha"},
+                        {"field": "Faturamento (R$)", "type": "nominal"},
+                    ],
+                },
+                "view": {"stroke": None},
+                "config": {"axis": {"gridColor": "#e5e7eb", "domain": False}},
+            }
+            st.vega_lite_chart(revenue_ranking, revenue_spec, use_container_width=True)
+        else:
+            st.info("Sem faturamento positivo no período analisado.")
+
+        st.markdown("#### Composição de vendas e estoque")
+        st.caption("Compare a participação percentual das curvas ABC e a distribuição do faturamento entre linhas.")
+
         graph1, graph2 = st.columns(2)
         with graph1:
             revenue_pie = summary[["linha", revenue_col]].copy()
@@ -2425,7 +2492,7 @@ def render_analise_linha():
                 revenue_pie,
                 "linha",
                 revenue_col,
-                f"Faturamento por linha — {period_days} dias",
+                f"Participação do faturamento por linha — {period_days} dias",
                 "Onde as vendas estão concentradas.",
                 "Faturamento",
                 color_domain=line_domain,
