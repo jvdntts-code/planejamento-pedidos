@@ -86,21 +86,21 @@ DEFAULT_CRITERIA = {
     "abc_period": 90,
     "abc_a": 80.0,
     "abc_b": 95.0,
-    "A_ruptura": 30,
-    "A_abaixo": 90,
-    "A_alerta": 135,
-    "A_ok": 180,
-    "A_alto": 240,
-    "B_ruptura": 30,
-    "B_abaixo": 90,
-    "B_alerta": 105,
+    "A_ruptura": 0,
+    "A_abaixo": 30,
+    "A_alerta": 90,
+    "A_ok": 150,
+    "A_alto": 180,
+    "B_ruptura": 0,
+    "B_abaixo": 30,
+    "B_alerta": 90,
     "B_ok": 120,
     "B_alto": 150,
-    "C_ruptura": 30,
-    "C_abaixo": 90,
-    "C_alerta": 105,
-    "C_ok": 120,
-    "C_alto": 150,
+    "C_ruptura": 0,
+    "C_abaixo": 30,
+    "C_alerta": 90,
+    "C_ok": 100,
+    "C_alto": 120,
 }
 
 
@@ -493,6 +493,9 @@ def classify_coverage(stock, sales, days, curve, criteria):
         return "ESTOQUE NEGATIVO"
     if sales <= 0:
         return "SEM VENDA - ESTOQUE PARADO" if stock > 0 else "SEM VENDA / SEM ESTOQUE"
+
+    if stock == 0:
+        return "RUPTURA"
 
     coverage = stock / (sales / days)
     ruptura = float(criteria[f"{curve}_ruptura"])
