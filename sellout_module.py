@@ -884,6 +884,7 @@ def render_sellout():
 
     marcas = sorted(base["brand"].replace("", "VOX").unique())
     marca = st.selectbox("Marca", marcas, key="sellout_marca_selecionada") if len(marcas) > 1 else marcas[0]
+    st.markdown(f"### Marca analisada: {marca}")
     df = base[base["brand"].eq(marca)].copy()
     meses_disponiveis = set(zip(df["year"].astype(int), df["month"].astype(int)))
     st.caption(
