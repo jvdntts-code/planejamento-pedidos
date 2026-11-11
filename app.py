@@ -105,7 +105,12 @@ pagina = st.sidebar.radio(
     "Escolha a área",
     MENU_ITEMS,
     label_visibility="collapsed",
+    key="nexo_pagina",
 )
+
+def _abrir_modulo(nome):
+    st.session_state["nexo_pagina"] = nome
+
 
 def render_inicio():
     st.markdown(
@@ -113,34 +118,61 @@ def render_inicio():
         <div class="nexo-hero">
             <div class="nexo-eyebrow">CENTRAL DE GESTÃO</div>
             <h1>NEXO <span style="font-size:.9rem;opacity:.55;letter-spacing:0">by JVN</span></h1>
-            <p>Planejamento de compras, análise de estoque e acompanhamento operacional em um só lugar.</p>
+            <p>Comece pela origem dos dados. Escolha o relatório e veja o que pode ser analisado, sem procurar planilhas por todo o sistema.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    st.subheader("Áreas de trabalho")
-    st.markdown('<div class="nexo-section-caption">Selecione um módulo no menu lateral para começar. Os resultados são calculados a partir dos dados importados em cada área.</div>', unsafe_allow_html=True)
-
-    cards = [
-        ("Planejamento de Pedido", "Calcule necessidades de compra por filial, considere lead time e pendências e exporte a memória de cálculo."),
-        ("Análise de Linha", "Acompanhe curva ABC, cobertura em dias, ruptura, risco, alerta e excesso de estoque."),
-        ("Análise de Sell-out", "Compare vendas, quantidades e faturamento entre produtos, marcas, lojas e períodos."),
-        ("Análise de Pendências", "Concilie dados do fornecedor e do sistema e identifique diferenças e pendências críticas."),
-        ("Gestão de Pedidos", "Consulte pedidos, documentos, histórico dos fornecedores e acompanhamento de recebimento."),
+    st.markdown("### Qual informação você quer analisar?")
+    st.caption(
+        "Cada caminho tem uma importação própria porque os arquivos possuem formatos "
+        "diferentes. Os indicadores aparecem no módulo correspondente após o processamento."
+    )
+    caminhos = [
+        (
+            "Análise de Linha", "Lista de Produtos por Marca + Vendas Produtos (preços)",
+            "Cobertura, Curva ABC, rupturas, itens sem giro e projeção de estoque."
+        ),
+        (
+            "Planejamento de Pedido", "Análise parcial de itens do pedido de compra",
+            "Necessidade de reposição por filial, condições e quantidade sugerida."
+        ),
+        (
+            "Análise de Sell-out", "Relatórios mensais de vendas",
+            "Variação de vendas, desempenho por loja e marca, evolução por período."
+        ),
+        (
+            "Análise de Pendências", "Relação geral de pendências",
+            "Atrasos, pendências críticas, marcas e ajustes necessários."
+        ),
+        (
+            "Gestão de Pedidos", "Pedidos de fornecedores em PDF",
+            "Pedidos registrados, fornecedores, recebimentos e histórico."
+        ),
     ]
+    for start in range(0, len(caminhos), 2):
+        cols = st.columns(2, gap="medium")
+        for col, (nome, origem, resultado) in zip(cols, caminhos[start:start + 2]):
+            with col:
+                with st.container(border=True):
+                    st.markdown(f"**{nome}**")
+                    st.caption(f"**Importação:** {origem}")
+                    st.write(resultado)
+                    st.button(
+                        "Abrir importação e análise",
+                        key=f"inicio_ir_{start}_{nome}",
+                        on_click=_abrir_modulo,
+                        args=(nome,),
+                        use_container_width=True,
+                    )
     if IS_ADMIN:
-        cards.append(("Minhas Tarefas", "Organize atividades, prazos, prioridades e lembretes."))
+        st.caption("Minhas Tarefas continua disponível no menu lateral.")
+    st.info(
+        "Os relatórios não são intercambiáveis entre módulos. "
+        "Dados financeiros e classificações só são confiáveis quando a importação "
+        "contém os campos necessários e o período de vendas está atualizado."
+    )
 
-    for start in range(0, len(cards), 2):
-        columns = st.columns(2, gap="medium")
-        for column, (title, description) in zip(columns, cards[start:start + 2]):
-            with column:
-                st.markdown(
-                    f'<div class="nexo-card"><div class="nexo-card-title">{title}</div>'
-                    f'<div class="nexo-card-text">{description}</div></div>',
-                    unsafe_allow_html=True,
-                )
-    st.caption("Os indicadores e relatórios dependem da qualidade e da atualização dos arquivos importados. O NEXO não utiliza valores demonstrativos como resultados reais.")
 
 def render_em_construcao(titulo, descricao):
     st.title(titulo)
@@ -595,50 +627,36 @@ with st.sidebar:
 
 render_sidebar_account_controls()
 
-st.markdown("### 1) Importação do relatório")
-
-st.caption(
-    "Acesse o relatório no Metabase, faça o download e depois importe o arquivo no NEXO."
-)
-st.link_button(
-    "Abrir relatório no Metabase",
-    "http://metabase.samarc.com.br/question/4277-analise-parcial-de-itens-do-pedido-de-compra?Pedido_Compra=&Desconsiderar_vca_e_ssa=",
-    use_container_width=False,
-)
-
-col_import, col_modelo = st.columns([2.2, 1])
-with col_import:
+with st.sidebar.expander(
+    "📁 Arquivos do Planejamento",
+    expanded=not bool(st.session_state.get("planejamento_relatorio_principal")),
+):
     main = st.file_uploader(
-        'Importe o relatório do sistema',
-        type=['xlsx','xls','csv'],
-        help='Use o relatório no formato esperado pelo NEXO. Se tiver dúvida, baixe o modelo ao lado.'
+        "Relatório de análise parcial do pedido",
+        type=["xlsx", "xls", "csv"],
+        key="planejamento_relatorio_principal",
+        help="Importe o relatório bruto do Metabase para iniciar o planejamento.",
     )
-
-with col_modelo:
-    st.markdown("**Primeira vez usando?**")
-    st.download_button(
-        'Baixar modelo de importação',
-        data=main_import_template_bytes(),
-        file_name='NEXO_modelo_importacao_planejamento.xlsx',
-        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        use_container_width=True,
-    )
-
-with st.expander('Como preparar o arquivo para importação'):
-    st.markdown(
-        """
-        **Para evitar erros na importação:**
-
-        - use o arquivo modelo disponibilizado acima;
-        - mantenha os nomes dos cabeçalhos;
-        - coloque **um produto por linha**;
-        - informe estoques, mínimos, vendas e embalagem como valores numéricos;
-        - não coloque linhas de totalização no meio dos produtos;
-        - o arquivo modelo possui abas de **Instruções**, **Dicionário** e **Filiais** para orientar o preenchimento.
-
-        O NEXO valida o arquivo antes de iniciar os cálculos e informa quais colunas estão faltando.
-        """
-    )
+    if main:
+        st.caption("✓ Arquivo principal selecionado")
+    with st.popover("Relatório e modelo"):
+        st.link_button(
+            "Abrir no Metabase",
+            "http://metabase.samarc.com.br/question/4277-analise-parcial-de-itens-do-pedido-de-compra?Pedido_Compra=&Desconsiderar_vca_e_ssa=",
+            use_container_width=True,
+        )
+        st.download_button(
+            "Baixar modelo da importação",
+            data=main_import_template_bytes(),
+            file_name="NEXO_modelo_importacao_planejamento.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+        st.caption(
+            "Um produto por linha, sem totais intermediários. "
+            "Informe estoque, mínimo, vendas e embalagem numéricos. "
+            "Consulte as instruções do arquivo modelo."
+        )
 
 if not main:
     st.info('Envie o relatório para começar. Se for a primeira utilização, baixe o modelo de importação e siga as instruções do arquivo.')
@@ -660,7 +678,7 @@ base = base[base['codigo'].ne('') & base['codigo'].ne('nan')].reset_index(drop=T
 
 st.success(f'Relatório reconhecido: {len(base)} produtos.')
 
-with st.expander('2) Dados manuais de filiais ausentes no relatório (opcional)'):
+with st.sidebar.expander('Dados manuais de filiais · opcional', expanded=False):
     st.caption('M10, M24, M38, M41 e M45 são manuais. M14 a M19 também podem ter necessidade de compra calculada pelos dados manuais e sempre continuam na análise do mínimo da M20.')
     manual_up = st.file_uploader('Importar dados manuais', type=['xlsx','xls','csv'], key='manual')
     st.download_button(
@@ -670,7 +688,7 @@ with st.expander('2) Dados manuais de filiais ausentes no relatório (opcional)'
         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
 
-with st.expander('3) Pendências a abater no pedido (opcional)', expanded=abater_pendencia):
+with st.sidebar.expander('Pendências para abater · opcional', expanded=False):
     if abater_pendencia:
         st.caption(
             'Importe uma planilha com as colunas **codigo**, **referencia** e **qtd pendente**. '
