@@ -2099,7 +2099,7 @@ def render_analise_linha():
                 on_change=auto_apply_criteria,
             )
             st.number_input(
-                "ALERTA: até (dias)",
+                "ALERTA: abaixo de (dias)",
                 min_value=1,
                 step=1,
                 key=widget_keys["A_alerta"],
@@ -2137,7 +2137,7 @@ def render_analise_linha():
                 on_change=auto_apply_criteria,
             )
             st.number_input(
-                "ALERTA: até (dias)",
+                "ALERTA: abaixo de (dias)",
                 min_value=1,
                 step=1,
                 key=widget_keys["B_alerta"],
@@ -2175,7 +2175,7 @@ def render_analise_linha():
                 on_change=auto_apply_criteria,
             )
             st.number_input(
-                "ALERTA: até (dias)",
+                "ALERTA: abaixo de (dias)",
                 min_value=1,
                 step=1,
                 key=widget_keys["C_alerta"],
