@@ -975,6 +975,15 @@ def render_pendencias():
         key="pending_search_v1",
     ).strip()
 
+    if selected_brands:
+        st.caption(
+            "Marcas em análise: " + ", ".join(selected_brands)
+        )
+    else:
+        st.caption(
+            f"Marcas em análise: todas as {len(brands_all)} marcas presentes na base."
+        )
+
     filtered = analyzed.copy()
     if selected_brands:
         filtered = filtered[filtered["MARCA"].isin(selected_brands)]
