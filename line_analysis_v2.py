@@ -2050,11 +2050,12 @@ def render_analise_linha():
         st.error(str(exc))
         return
 
-    analysis_name = st.text_input(
-        "Nome da análise / marca",
-        value=uploaded.name.rsplit(".", 1)[0],
-        key="nome_analise_linha_v2",
-    )
+    with st.sidebar:
+        analysis_name = st.text_input(
+            "Nome da análise / marca",
+            value=uploaded.name.rsplit(".", 1)[0],
+            key="nome_analise_linha_v2",
+        )
 
     if "line_criteria_persistent_loaded" not in st.session_state:
         persistent_criteria, persistent_error = _github_read_config()
@@ -2303,10 +2304,9 @@ def render_analise_linha():
     criteria = st.session_state["line_criteria_active"].copy()
     period_days = int(criteria["abc_period"])
 
-    st.info(
-        f"**Critérios no menu lateral** — Período único da análise: "
-        f"**{period_days} dias** • A até **{criteria['abc_a']:.0f}%** • "
-        f"B até **{criteria['abc_b']:.0f}%**. O mesmo período define Curva ABC, cobertura e situação."
+    st.caption(
+        f"Período: {period_days} dias · Curva A até {criteria['abc_a']:.0f}% · "
+        f"Curva B até {criteria['abc_b']:.0f}% · Critérios ajustáveis no menu lateral."
     )
 
     products, summary = build_line_analysis(base, period_days, criteria, long_days)
@@ -2331,605 +2331,610 @@ def render_analise_linha():
         period_days,
     )
 
-    st.divider()
-    st.markdown("### Visão geral da marca")
+    visao_tab, detalhe_tab = st.tabs(["Visão gerencial", "Explorar dados e relatórios"])
 
-    curve_counts = products["curva_abc"].value_counts()
-    top1, top2, top3, top4 = st.columns(4)
-    top1.metric("Total de Itens", integer(len(products)))
-    top2.metric("Curva A", integer(curve_counts.get("A", 0)))
-    top3.metric("Curva B", integer(curve_counts.get("B", 0)))
-    top4.metric("Curva C", integer(curve_counts.get("C", 0)))
+    with visao_tab:
+        from management_dashboard import render_management_overview
+        render_management_overview(products, period_days, analysis_name, brl, integer)
+        with st.expander("Projeção de estoque por data", expanded=False):
+            from stock_projection import render_projection
+            render_projection(products, period_days, classify_coverage, criteria)
 
-    fin1, fin2, fin3 = st.columns(3)
-    fin1.metric(f"Faturamento {period_days} dias", brl(total_revenue))
-    fin2.metric("Estoque (unidades)", integer(total_stock))
-    fin3.metric("Estoque a Preço de Venda", brl(stock_value))
+    with detalhe_tab:
+        st.divider()
+        st.markdown("### Indicadores completos")
 
-    # Cobertura geral ponderada pelo consumo em unidades, apenas dos produtos com vendas.
-    # Estoques sem giro não devem inflar artificialmente a duração estimada.
-    active_sales = products["vendas_periodo"] > 0
-    active_stock = float(products.loc[active_sales, "estoque"].clip(lower=0).sum())
-    active_units_sold = float(products.loc[active_sales, "vendas_periodo"].sum())
-    daily_consumption = active_units_sold / period_days if period_days > 0 else 0.0
-    overall_days = active_stock / daily_consumption if daily_consumption > 0 else None
-    overall_months = overall_days / 30.0 if overall_days is not None else None
-    inactive_stock = float(products.loc[~active_sales, "estoque"].clip(lower=0).sum())
+        curve_counts = products["curva_abc"].value_counts()
+        top1, top2, top3, top4 = st.columns(4)
+        top1.metric("Total de Itens", integer(len(products)))
+        top2.metric("Curva A", integer(curve_counts.get("A", 0)))
+        top3.metric("Curva B", integer(curve_counts.get("B", 0)))
+        top4.metric("Curva C", integer(curve_counts.get("C", 0)))
 
-    st.markdown("#### Duração geral do estoque")
-    duration_col, daily_col, stock_col = st.columns(3)
-    duration_col.metric(
-        "Cobertura estimada (meses)",
-        f"{overall_months:.1f}" .replace(".", ",") if overall_months is not None else "Sem consumo",
-    )
-    daily_col.metric("Consumo médio diário (un.)", integer(daily_consumption))
-    stock_col.metric("Estoque com vendas (un.)", integer(active_stock))
-    st.caption(
-        f"Estimativa: estoque dos produtos com vendas ÷ consumo médio diário no período de "
-        f"{period_days} dias ÷ 30 dias por mês. "
-        f"Não considera reposições futuras nem sazonalidade. "
-        f"Estoque de produtos sem vendas ({integer(inactive_stock)} un.) excluído "
-        f"para não distorcer a cobertura; não representa a duração individual de cada produto."
-    )
+        fin1, fin2, fin3 = st.columns(3)
+        fin1.metric(f"Faturamento {period_days} dias", brl(total_revenue))
+        fin2.metric("Estoque (unidades)", integer(total_stock))
+        fin3.metric("Estoque a Preço de Venda", brl(stock_value))
+
+        # Cobertura geral ponderada pelo consumo em unidades, apenas dos produtos com vendas.
+        # Estoques sem giro não devem inflar artificialmente a duração estimada.
+        active_sales = products["vendas_periodo"] > 0
+        active_stock = float(products.loc[active_sales, "estoque"].clip(lower=0).sum())
+        active_units_sold = float(products.loc[active_sales, "vendas_periodo"].sum())
+        daily_consumption = active_units_sold / period_days if period_days > 0 else 0.0
+        overall_days = active_stock / daily_consumption if daily_consumption > 0 else None
+        overall_months = overall_days / 30.0 if overall_days is not None else None
+        inactive_stock = float(products.loc[~active_sales, "estoque"].clip(lower=0).sum())
+
+        st.markdown("#### Duração geral do estoque")
+        duration_col, daily_col, stock_col = st.columns(3)
+        duration_col.metric(
+            "Cobertura estimada (meses)",
+            f"{overall_months:.1f}" .replace(".", ",") if overall_months is not None else "Sem consumo",
+        )
+        daily_col.metric("Consumo médio diário (un.)", integer(daily_consumption))
+        stock_col.metric("Estoque com vendas (un.)", integer(active_stock))
+        st.caption(
+            f"Estimativa: estoque dos produtos com vendas ÷ consumo médio diário no período de "
+            f"{period_days} dias ÷ 30 dias por mês. "
+            f"Não considera reposições futuras nem sazonalidade. "
+            f"Estoque de produtos sem vendas ({integer(inactive_stock)} un.) excluído "
+            f"para não distorcer a cobertura; não representa a duração individual de cada produto."
+        )
 
 
-    st.divider()
-    with st.expander("Projeção de estoque por data", expanded=False):
-        from stock_projection import render_projection
-        render_projection(products, period_days, classify_coverage, criteria)
+        st.divider()
+        st.markdown("### Diagnóstico e distribuição do estoque")
 
-    st.divider()
-    st.markdown("### Diagnóstico e distribuição do estoque")
+        situation_tab, abc_tab = st.tabs(["Situação de cobertura", "Curva ABC"])
 
-    situation_tab, abc_tab = st.tabs(["Situação de cobertura", "Curva ABC"])
+        with situation_tab:
+            st.markdown("#### Situação de Cobertura")
+            st.dataframe(
+                status_panel,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    f"Faturamento {period_days} dias": st.column_config.NumberColumn(
+                        format="R$ %.2f"
+                    ),
+                    "% dos Itens": st.column_config.NumberColumn(format="%.1f%%"),
+                    "Valor Estoque": st.column_config.NumberColumn(format="R$ %.2f"),
+                },
+            )
 
-    with situation_tab:
-        st.markdown("#### Situação de Cobertura")
+        with abc_tab:
+            st.markdown("#### Curva ABC")
+            st.dataframe(
+                abc_panel,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    f"Faturamento {period_days} dias": st.column_config.NumberColumn(
+                        format="R$ %.2f"
+                    ),
+                    "% Faturamento": st.column_config.NumberColumn(format="%.1f%%"),
+                    "Valor Estoque": st.column_config.NumberColumn(format="R$ %.2f"),
+                    "Faturamento / Estoque %": st.column_config.NumberColumn(
+                        format="%.1f%%"
+                    ),
+                    "Faturamento / Estoque total": st.column_config.NumberColumn(
+                        format="%.1f%%"
+                    ),
+                },
+            )
+
+        st.markdown("#### Prioridades gerenciais")
         st.dataframe(
-            status_panel,
+            priorities_panel,
             use_container_width=True,
             hide_index=True,
             column_config={
-                f"Faturamento {period_days} dias": st.column_config.NumberColumn(
-                    format="R$ %.2f"
-                ),
                 "% dos Itens": st.column_config.NumberColumn(format="%.1f%%"),
                 "Valor Estoque": st.column_config.NumberColumn(format="R$ %.2f"),
             },
         )
 
-    with abc_tab:
-        st.markdown("#### Curva ABC")
-        st.dataframe(
-            abc_panel,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                f"Faturamento {period_days} dias": st.column_config.NumberColumn(
-                    format="R$ %.2f"
-                ),
-                "% Faturamento": st.column_config.NumberColumn(format="%.1f%%"),
-                "Valor Estoque": st.column_config.NumberColumn(format="R$ %.2f"),
-                "Faturamento / Estoque %": st.column_config.NumberColumn(
-                    format="%.1f%%"
-                ),
-                "Faturamento / Estoque total": st.column_config.NumberColumn(
-                    format="%.1f%%"
-                ),
-            },
-        )
-
-    st.markdown("#### Prioridades gerenciais")
-    st.dataframe(
-        priorities_panel,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "% dos Itens": st.column_config.NumberColumn(format="%.1f%%"),
-            "Valor Estoque": st.column_config.NumberColumn(format="R$ %.2f"),
-        },
-    )
-
-    st.divider()
-    st.markdown("### Gráficos e indicadores")
-    with st.expander("Explorar gráficos e indicadores", expanded=True):
-        line_domain = summary["linha"].tolist()
-        line_colors = [
-            LINE_CHART_COLORS[i % len(LINE_CHART_COLORS)]
-            for i in range(len(line_domain))
-        ]
-
-        abc_rep = (
-            products.groupby("curva_abc", dropna=False)
-            .agg(
-                faturamento=("faturamento_periodo", "sum"),
-                valor_estoque=("valor_estoque", "sum"),
-            )
-            .reindex(["A", "B", "C"], fill_value=0)
-            .reset_index()
-            .rename(columns={"curva_abc": "Curva"})
-        )
-
-        total_abc_faturamento = float(abc_rep["faturamento"].sum())
-        total_abc_estoque = float(abc_rep["valor_estoque"].sum())
-        abc_rep["% Vendas"] = np.where(
-            total_abc_faturamento != 0,
-            abc_rep["faturamento"] / total_abc_faturamento * 100,
-            0,
-        )
-        abc_rep["% Valor Estoque"] = np.where(
-            total_abc_estoque != 0,
-            abc_rep["valor_estoque"] / total_abc_estoque * 100,
-            0,
-        )
-
-        abc_chart_vendas = abc_rep[
-            ["Curva", "% Vendas", "faturamento"]
-        ].copy()
-        abc_chart_vendas.columns = ["Curva", "Percentual", "Valor"]
-        abc_chart_vendas["Indicador"] = "Valor vendido"
-
-        abc_chart_estoque = abc_rep[
-            ["Curva", "% Valor Estoque", "valor_estoque"]
-        ].copy()
-        abc_chart_estoque.columns = ["Curva", "Percentual", "Valor"]
-        abc_chart_estoque["Indicador"] = "Valor do estoque"
-
-        abc_chart = pd.concat(
-            [abc_chart_vendas, abc_chart_estoque],
-            ignore_index=True,
-        )
-        abc_chart["Valor em R$"] = abc_chart["Valor"].apply(brl)
-
-        abc_compare_spec = {
-            "mark": {
-                "type": "bar",
-                "cornerRadiusTopLeft": 3,
-                "cornerRadiusTopRight": 3,
-            },
-            "encoding": {
-                "x": {
-                    "field": "Curva",
-                    "type": "nominal",
-                    "sort": ["A", "B", "C"],
-                    "title": "Curva ABC",
-                    "axis": {"labelAngle": 0},
-                },
-                "xOffset": {"field": "Indicador"},
-                "y": {
-                    "field": "Percentual",
-                    "type": "quantitative",
-                    "title": "Participação (%)",
-                    "scale": {"domain": [0, 100]},
-                },
-                "color": {
-                    "field": "Indicador",
-                    "type": "nominal",
-                    "title": None,
-                    "legend": {"orient": "bottom"},
-                },
-                "tooltip": [
-                    {"field": "Curva", "type": "nominal", "title": "Curva"},
-                    {"field": "Indicador", "type": "nominal", "title": "Indicador"},
-                    {
-                        "field": "Percentual",
-                        "type": "quantitative",
-                        "title": "Participação (%)",
-                        "format": ".1f",
-                    },
-                    {
-                        "field": "Valor em R$",
-                        "type": "nominal",
-                        "title": "Valor (R$)",
-                    },
-                ],
-            },
-            "view": {"stroke": None},
-        }
-
-        st.markdown("#### Distribuição da cobertura")
-        st.caption("Quantidade de produtos por situação, conforme os limites das curvas A, B e C. Produtos sem vendas são apresentados separadamente.")
-        status_order_chart = [
-            "RUPTURA", "RISCO DE RUPTURA", "ALERTA", "OK", "ALTO",
-            "EXCESSO", "SEM VENDA - ESTOQUE PARADO", "SEM VENDA / SEM ESTOQUE",
-            "ESTOQUE NEGATIVO",
-        ]
-        status_counts_chart = (
-            products["status"].value_counts().reindex(status_order_chart, fill_value=0)
-            .rename_axis("Situação").reset_index(name="Produtos")
-        )
-        status_counts_chart = status_counts_chart[status_counts_chart["Produtos"] > 0]
-        if not status_counts_chart.empty:
-            status_chart_spec = {
-                "height": {"step": 30},
-                "mark": {"type": "bar", "cornerRadiusEnd": 5},
-                "encoding": {
-                    "y": {"field": "Situação", "type": "nominal", "sort": status_order_chart,
-                          "title": None, "axis": {"labelLimit": 240}},
-                    "x": {"field": "Produtos", "type": "quantitative", "title": "Quantidade de produtos",
-                          "axis": {"tickMinStep": 1}, "scale": {"zero": True}},
-                    "color": {"field": "Situação", "type": "nominal", "legend": None,
-                              "scale": {"domain": status_order_chart,
-                                        "range": ["#dc2626", "#f97316", "#eab308", "#16a34a",
-                                                  "#0d9488", "#6366f1", "#64748b", "#94a3b8", "#7f1d1d"]}},
-                    "tooltip": [
-                        {"field": "Situação", "type": "nominal"},
-                        {"field": "Produtos", "type": "quantitative", "format": ",.0f"},
-                    ],
-                },
-                "view": {"stroke": None},
-                "config": {"axis": {"gridColor": "#e5e7eb", "domain": False}},
-            }
-            st.vega_lite_chart(status_counts_chart, status_chart_spec, use_container_width=True)
-        else:
-            st.info("Sem produtos classificados para exibir.")
-
-        st.markdown("#### Concentração de faturamento por linha")
-        st.caption(f"Ranking das linhas por faturamento nos últimos {period_days} dias. Apenas valores positivos são exibidos.")
-        revenue_ranking = summary[["linha", revenue_col]].copy()
-        revenue_ranking[revenue_col] = pd.to_numeric(revenue_ranking[revenue_col], errors="coerce").fillna(0)
-        revenue_ranking = revenue_ranking[revenue_ranking[revenue_col] > 0].sort_values(revenue_col, ascending=False)
-        if not revenue_ranking.empty:
-            revenue_ranking["Faturamento (R$)"] = revenue_ranking[revenue_col].apply(brl)
-            revenue_spec = {
-                "height": {"step": 29},
-                "mark": {"type": "bar", "color": "#2563eb", "cornerRadiusEnd": 5},
-                "encoding": {
-                    "y": {"field": "linha", "type": "nominal", "sort": "-x", "title": None,
-                          "axis": {"labelLimit": 240}},
-                    "x": {"field": revenue_col, "type": "quantitative", "title": "Faturamento (R$)",
-                          "scale": {"zero": True}},
-                    "tooltip": [
-                        {"field": "linha", "type": "nominal", "title": "Linha"},
-                        {"field": "Faturamento (R$)", "type": "nominal"},
-                    ],
-                },
-                "view": {"stroke": None},
-                "config": {"axis": {"gridColor": "#e5e7eb", "domain": False}},
-            }
-            st.vega_lite_chart(revenue_ranking, revenue_spec, use_container_width=True)
-        else:
-            st.info("Sem faturamento positivo no período analisado.")
-
-        st.markdown("#### Composição de vendas e estoque")
-        st.caption("Compare a participação percentual das curvas ABC e a distribuição do faturamento entre linhas.")
-
-        graph1, graph2 = st.columns(2)
-        with graph1:
-            revenue_pie = summary[["linha", revenue_col]].copy()
-            _pie_chart(
-                revenue_pie,
-                "linha",
-                revenue_col,
-                f"Participação do faturamento por linha — {period_days} dias",
-                "Onde as vendas estão concentradas.",
-                "Faturamento",
-                color_domain=line_domain,
-                color_range=line_colors,
-            )
-
-        with graph2:
-            st.markdown("**Curva ABC — vendas x estoque**")
-            st.caption(
-                "Passe o mouse nas barras para ver participação e valor em R$."
-            )
-            st.vega_lite_chart(
-                abc_chart,
-                abc_compare_spec,
-                use_container_width=True,
-            )
-
-    with st.expander("Ver ranking gerencial por linha", expanded=False):
-        manager = _friendly_summary(summary, long_days)[
-            [
-                "Linha",
-                "SKUs",
-                "Faturamento 90d",
-                f"Faturamento {long_days}d",
-                "Valor Estoque",
-                "Valor Alto/Excesso",
-                "Valor Parado",
-                "Ruptura",
-                "Excesso",
-                "Parados",
+        st.divider()
+        st.markdown("### Gráficos e indicadores")
+        with st.expander("Explorar gráficos e indicadores", expanded=True):
+            line_domain = summary["linha"].tolist()
+            line_colors = [
+                LINE_CHART_COLORS[i % len(LINE_CHART_COLORS)]
+                for i in range(len(line_domain))
             ]
-        ].copy()
-        st.dataframe(
-            manager,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Faturamento 90d": st.column_config.NumberColumn(format="R$ %.2f"),
-                f"Faturamento {long_days}d": st.column_config.NumberColumn(
-                    format="R$ %.2f"
-                ),
-                "Valor Estoque": st.column_config.NumberColumn(format="R$ %.2f"),
-                "Valor Alto/Excesso": st.column_config.NumberColumn(format="R$ %.2f"),
-                "Valor Parado": st.column_config.NumberColumn(format="R$ %.2f"),
-            },
-        )
 
-    st.markdown("### Análise por Curva ABC")
-    st.caption(
-        "Veja, dentro de cada curva, quantos produtos estão em cada situação, "
-        "o valor de estoque correspondente e quais são os itens."
-    )
-
-    abc_status_order = [
-        "EXCESSO",
-        "ALTO",
-        "OK",
-        "ALERTA",
-        "RISCO DE RUPTURA",
-        "RUPTURA",
-    ]
-
-    curva_a_tab, curva_b_tab, curva_c_tab = st.tabs(
-        ["Curva A", "Curva B", "Curva C"]
-    )
-
-    for curva_nome, curva_tab in zip(
-        ["A", "B", "C"],
-        [curva_a_tab, curva_b_tab, curva_c_tab],
-    ):
-        with curva_tab:
-            curva_df = products[
-                products["curva_abc"].eq(curva_nome)
-                & products["status"].isin(abc_status_order)
-            ].copy()
-
-            total_curva_itens = len(curva_df)
-            total_curva_valor = float(curva_df["valor_estoque"].sum())
-
-            kpi1, kpi2 = st.columns(2)
-            kpi1.metric(
-                f"Itens Curva {curva_nome}",
-                integer(total_curva_itens),
-            )
-            kpi2.metric(
-                "Valor de estoque",
-                brl(total_curva_valor),
-            )
-
-            resumo_status = (
-                curva_df.groupby("status", dropna=False)
+            abc_rep = (
+                products.groupby("curva_abc", dropna=False)
                 .agg(
-                    Itens=("codigo", "count"),
-                    Valor_Estoque=("valor_estoque", "sum"),
+                    faturamento=("faturamento_periodo", "sum"),
+                    valor_estoque=("valor_estoque", "sum"),
                 )
-                .reindex(abc_status_order, fill_value=0)
+                .reindex(["A", "B", "C"], fill_value=0)
                 .reset_index()
-                .rename(
-                    columns={
-                        "status": "Status",
-                        "Valor_Estoque": "Valor Estoque",
-                    }
-                )
+                .rename(columns={"curva_abc": "Curva"})
             )
-            resumo_status["% Valor da Curva"] = np.where(
-                total_curva_valor != 0,
-                resumo_status["Valor Estoque"] / total_curva_valor * 100,
+
+            total_abc_faturamento = float(abc_rep["faturamento"].sum())
+            total_abc_estoque = float(abc_rep["valor_estoque"].sum())
+            abc_rep["% Vendas"] = np.where(
+                total_abc_faturamento != 0,
+                abc_rep["faturamento"] / total_abc_faturamento * 100,
+                0,
+            )
+            abc_rep["% Valor Estoque"] = np.where(
+                total_abc_estoque != 0,
+                abc_rep["valor_estoque"] / total_abc_estoque * 100,
                 0,
             )
 
+            abc_chart_vendas = abc_rep[
+                ["Curva", "% Vendas", "faturamento"]
+            ].copy()
+            abc_chart_vendas.columns = ["Curva", "Percentual", "Valor"]
+            abc_chart_vendas["Indicador"] = "Valor vendido"
+
+            abc_chart_estoque = abc_rep[
+                ["Curva", "% Valor Estoque", "valor_estoque"]
+            ].copy()
+            abc_chart_estoque.columns = ["Curva", "Percentual", "Valor"]
+            abc_chart_estoque["Indicador"] = "Valor do estoque"
+
+            abc_chart = pd.concat(
+                [abc_chart_vendas, abc_chart_estoque],
+                ignore_index=True,
+            )
+            abc_chart["Valor em R$"] = abc_chart["Valor"].apply(brl)
+
+            abc_compare_spec = {
+                "mark": {
+                    "type": "bar",
+                    "cornerRadiusTopLeft": 3,
+                    "cornerRadiusTopRight": 3,
+                },
+                "encoding": {
+                    "x": {
+                        "field": "Curva",
+                        "type": "nominal",
+                        "sort": ["A", "B", "C"],
+                        "title": "Curva ABC",
+                        "axis": {"labelAngle": 0},
+                    },
+                    "xOffset": {"field": "Indicador"},
+                    "y": {
+                        "field": "Percentual",
+                        "type": "quantitative",
+                        "title": "Participação (%)",
+                        "scale": {"domain": [0, 100]},
+                    },
+                    "color": {
+                        "field": "Indicador",
+                        "type": "nominal",
+                        "title": None,
+                        "legend": {"orient": "bottom"},
+                    },
+                    "tooltip": [
+                        {"field": "Curva", "type": "nominal", "title": "Curva"},
+                        {"field": "Indicador", "type": "nominal", "title": "Indicador"},
+                        {
+                            "field": "Percentual",
+                            "type": "quantitative",
+                            "title": "Participação (%)",
+                            "format": ".1f",
+                        },
+                        {
+                            "field": "Valor em R$",
+                            "type": "nominal",
+                            "title": "Valor (R$)",
+                        },
+                    ],
+                },
+                "view": {"stroke": None},
+            }
+
+            st.markdown("#### Distribuição da cobertura")
+            st.caption("Quantidade de produtos por situação, conforme os limites das curvas A, B e C. Produtos sem vendas são apresentados separadamente.")
+            status_order_chart = [
+                "RUPTURA", "RISCO DE RUPTURA", "ALERTA", "OK", "ALTO",
+                "EXCESSO", "SEM VENDA - ESTOQUE PARADO", "SEM VENDA / SEM ESTOQUE",
+                "ESTOQUE NEGATIVO",
+            ]
+            status_counts_chart = (
+                products["status"].value_counts().reindex(status_order_chart, fill_value=0)
+                .rename_axis("Situação").reset_index(name="Produtos")
+            )
+            status_counts_chart = status_counts_chart[status_counts_chart["Produtos"] > 0]
+            if not status_counts_chart.empty:
+                status_chart_spec = {
+                    "height": {"step": 30},
+                    "mark": {"type": "bar", "cornerRadiusEnd": 5},
+                    "encoding": {
+                        "y": {"field": "Situação", "type": "nominal", "sort": status_order_chart,
+                              "title": None, "axis": {"labelLimit": 240}},
+                        "x": {"field": "Produtos", "type": "quantitative", "title": "Quantidade de produtos",
+                              "axis": {"tickMinStep": 1}, "scale": {"zero": True}},
+                        "color": {"field": "Situação", "type": "nominal", "legend": None,
+                                  "scale": {"domain": status_order_chart,
+                                            "range": ["#dc2626", "#f97316", "#eab308", "#16a34a",
+                                                      "#0d9488", "#6366f1", "#64748b", "#94a3b8", "#7f1d1d"]}},
+                        "tooltip": [
+                            {"field": "Situação", "type": "nominal"},
+                            {"field": "Produtos", "type": "quantitative", "format": ",.0f"},
+                        ],
+                    },
+                    "view": {"stroke": None},
+                    "config": {"axis": {"gridColor": "#e5e7eb", "domain": False}},
+                }
+                st.vega_lite_chart(status_counts_chart, status_chart_spec, use_container_width=True)
+            else:
+                st.info("Sem produtos classificados para exibir.")
+
+            st.markdown("#### Concentração de faturamento por linha")
+            st.caption(f"Ranking das linhas por faturamento nos últimos {period_days} dias. Apenas valores positivos são exibidos.")
+            revenue_ranking = summary[["linha", revenue_col]].copy()
+            revenue_ranking[revenue_col] = pd.to_numeric(revenue_ranking[revenue_col], errors="coerce").fillna(0)
+            revenue_ranking = revenue_ranking[revenue_ranking[revenue_col] > 0].sort_values(revenue_col, ascending=False)
+            if not revenue_ranking.empty:
+                revenue_ranking["Faturamento (R$)"] = revenue_ranking[revenue_col].apply(brl)
+                revenue_spec = {
+                    "height": {"step": 29},
+                    "mark": {"type": "bar", "color": "#2563eb", "cornerRadiusEnd": 5},
+                    "encoding": {
+                        "y": {"field": "linha", "type": "nominal", "sort": "-x", "title": None,
+                              "axis": {"labelLimit": 240}},
+                        "x": {"field": revenue_col, "type": "quantitative", "title": "Faturamento (R$)",
+                              "scale": {"zero": True}},
+                        "tooltip": [
+                            {"field": "linha", "type": "nominal", "title": "Linha"},
+                            {"field": "Faturamento (R$)", "type": "nominal"},
+                        ],
+                    },
+                    "view": {"stroke": None},
+                    "config": {"axis": {"gridColor": "#e5e7eb", "domain": False}},
+                }
+                st.vega_lite_chart(revenue_ranking, revenue_spec, use_container_width=True)
+            else:
+                st.info("Sem faturamento positivo no período analisado.")
+
+            st.markdown("#### Composição de vendas e estoque")
+            st.caption("Compare a participação percentual das curvas ABC e a distribuição do faturamento entre linhas.")
+
+            graph1, graph2 = st.columns(2)
+            with graph1:
+                revenue_pie = summary[["linha", revenue_col]].copy()
+                _pie_chart(
+                    revenue_pie,
+                    "linha",
+                    revenue_col,
+                    f"Participação do faturamento por linha — {period_days} dias",
+                    "Onde as vendas estão concentradas.",
+                    "Faturamento",
+                    color_domain=line_domain,
+                    color_range=line_colors,
+                )
+
+            with graph2:
+                st.markdown("**Curva ABC — vendas x estoque**")
+                st.caption(
+                    "Passe o mouse nas barras para ver participação e valor em R$."
+                )
+                st.vega_lite_chart(
+                    abc_chart,
+                    abc_compare_spec,
+                    use_container_width=True,
+                )
+
+        with st.expander("Ver ranking gerencial por linha", expanded=False):
+            manager = _friendly_summary(summary, long_days)[
+                [
+                    "Linha",
+                    "SKUs",
+                    "Faturamento 90d",
+                    f"Faturamento {long_days}d",
+                    "Valor Estoque",
+                    "Valor Alto/Excesso",
+                    "Valor Parado",
+                    "Ruptura",
+                    "Excesso",
+                    "Parados",
+                ]
+            ].copy()
             st.dataframe(
-                resumo_status,
+                manager,
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "Itens": st.column_config.NumberColumn(format="%d"),
+                    "Faturamento 90d": st.column_config.NumberColumn(format="R$ %.2f"),
+                    f"Faturamento {long_days}d": st.column_config.NumberColumn(
+                        format="R$ %.2f"
+                    ),
                     "Valor Estoque": st.column_config.NumberColumn(format="R$ %.2f"),
-                    "% Valor da Curva": st.column_config.NumberColumn(format="%.1f%%"),
+                    "Valor Alto/Excesso": st.column_config.NumberColumn(format="R$ %.2f"),
+                    "Valor Parado": st.column_config.NumberColumn(format="R$ %.2f"),
                 },
             )
 
-            status_escolhido = st.selectbox(
-                "Mostrar produtos",
-                ["Todas as situações"] + abc_status_order,
-                key=f"abc_status_produtos_{curva_nome}",
-            )
+        st.markdown("### Análise por Curva ABC")
+        st.caption(
+            "Veja, dentro de cada curva, quantos produtos estão em cada situação, "
+            "o valor de estoque correspondente e quais são os itens."
+        )
 
-            itens_curva = curva_df.copy()
-            if status_escolhido != "Todas as situações":
-                itens_curva = itens_curva[
-                    itens_curva["status"].eq(status_escolhido)
+        abc_status_order = [
+            "EXCESSO",
+            "ALTO",
+            "OK",
+            "ALERTA",
+            "RISCO DE RUPTURA",
+            "RUPTURA",
+        ]
+
+        curva_a_tab, curva_b_tab, curva_c_tab = st.tabs(
+            ["Curva A", "Curva B", "Curva C"]
+        )
+
+        for curva_nome, curva_tab in zip(
+            ["A", "B", "C"],
+            [curva_a_tab, curva_b_tab, curva_c_tab],
+        ):
+            with curva_tab:
+                curva_df = products[
+                    products["curva_abc"].eq(curva_nome)
+                    & products["status"].isin(abc_status_order)
                 ].copy()
 
-            itens_view = _friendly_products(
-                itens_curva,
-                long_days,
-                period_days,
-            )[
+                total_curva_itens = len(curva_df)
+                total_curva_valor = float(curva_df["valor_estoque"].sum())
+
+                kpi1, kpi2 = st.columns(2)
+                kpi1.metric(
+                    f"Itens Curva {curva_nome}",
+                    integer(total_curva_itens),
+                )
+                kpi2.metric(
+                    "Valor de estoque",
+                    brl(total_curva_valor),
+                )
+
+                resumo_status = (
+                    curva_df.groupby("status", dropna=False)
+                    .agg(
+                        Itens=("codigo", "count"),
+                        Valor_Estoque=("valor_estoque", "sum"),
+                    )
+                    .reindex(abc_status_order, fill_value=0)
+                    .reset_index()
+                    .rename(
+                        columns={
+                            "status": "Status",
+                            "Valor_Estoque": "Valor Estoque",
+                        }
+                    )
+                )
+                resumo_status["% Valor da Curva"] = np.where(
+                    total_curva_valor != 0,
+                    resumo_status["Valor Estoque"] / total_curva_valor * 100,
+                    0,
+                )
+
+                st.dataframe(
+                    resumo_status,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Itens": st.column_config.NumberColumn(format="%d"),
+                        "Valor Estoque": st.column_config.NumberColumn(format="R$ %.2f"),
+                        "% Valor da Curva": st.column_config.NumberColumn(format="%.1f%%"),
+                    },
+                )
+
+                status_escolhido = st.selectbox(
+                    "Mostrar produtos",
+                    ["Todas as situações"] + abc_status_order,
+                    key=f"abc_status_produtos_{curva_nome}",
+                )
+
+                itens_curva = curva_df.copy()
+                if status_escolhido != "Todas as situações":
+                    itens_curva = itens_curva[
+                        itens_curva["status"].eq(status_escolhido)
+                    ].copy()
+
+                itens_view = _friendly_products(
+                    itens_curva,
+                    long_days,
+                    period_days,
+                )[
+                    [
+                        "Código",
+                        "Referência",
+                        "Descrição",
+                        "Linha",
+                        "Estoque",
+                        f"Faturamento {period_days}d",
+                        "Cobertura (dias)",
+                        "Status",
+                        "Valor Estoque",
+                    ]
+                ].copy()
+
+                st.caption(
+                    f"{len(itens_view)} produto(s) exibido(s)"
+                    + (
+                        f" em {status_escolhido}"
+                        if status_escolhido != "Todas as situações"
+                        else ""
+                    )
+                    + "."
+                )
+
+                st.dataframe(
+                    itens_view,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        f"Faturamento {period_days}d": st.column_config.NumberColumn(
+                            format="R$ %.2f"
+                        ),
+                        "Cobertura (dias)": st.column_config.NumberColumn(
+                            format="%.1f"
+                        ),
+                        "Valor Estoque": st.column_config.NumberColumn(
+                            format="R$ %.2f"
+                        ),
+                    },
+                )
+
+        st.divider()
+        st.markdown("### Detalhamento por produto")
+        selected_line = st.selectbox(
+            "Escolha uma linha para detalhar",
+            ["Todas as linhas"] + summary["linha"].tolist(),
+            key="linha_detalhe_v2",
+        )
+        products_filtered = products.copy()
+        if selected_line != "Todas as linhas":
+            products_filtered = products_filtered[
+                products_filtered["linha"].eq(selected_line)
+            ].copy()
+
+        if selected_line != "Todas as linhas":
+            line_revenue = float(products_filtered["faturamento_periodo"].sum())
+            line_stock = float(products_filtered["valor_estoque"].sum())
+            line_high = products_filtered["status"].isin(["ALTO", "EXCESSO"])
+            line_stopped = products_filtered["status"].eq("SEM VENDA - ESTOQUE PARADO")
+            dcols = st.columns(4)
+            dcols[0].metric("SKUs da linha", len(products_filtered))
+            dcols[1].metric(f"Faturamento {period_days}d", brl(line_revenue))
+            dcols[2].metric("Valor estoque", brl(line_stock))
+            dcols[3].metric(
+                "Valor Alto/Excesso",
+                brl(products_filtered.loc[line_high, "valor_estoque"].sum()),
+            )
+
+        tab1, tab2, tab3 = st.tabs(
+            ["Produtos críticos", "Todos os produtos", "Critérios"]
+        )
+
+        with tab1:
+            crit_kind = st.radio(
+                "Visualizar",
+                ["Ruptura / Risco / Alerta", "Alto / Excesso", "Estoque parado"],
+                horizontal=True,
+                key="criticos_v2",
+            )
+            if crit_kind == "Ruptura / Risco / Alerta":
+                filtered = products_filtered[
+                    products_filtered["status"].isin(["RUPTURA", "RISCO DE RUPTURA", "ALERTA"])
+                ].copy()
+            elif crit_kind == "Alto / Excesso":
+                filtered = products_filtered[
+                    products_filtered["status"].isin(["ALTO", "EXCESSO"])
+                ].copy()
+            else:
+                filtered = products_filtered[
+                    products_filtered["status"].eq("SEM VENDA - ESTOQUE PARADO")
+                ].copy()
+
+            critical_view = _friendly_products(filtered, long_days, period_days)[
                 [
                     "Código",
                     "Referência",
                     "Descrição",
                     "Linha",
                     "Estoque",
-                    f"Faturamento {period_days}d",
+                    "Vendas 90d",
+                    f"Vendas {long_days}d",
+                    "Curva ABC",
                     "Cobertura (dias)",
                     "Status",
                     "Valor Estoque",
                 ]
-            ].copy()
-
-            st.caption(
-                f"{len(itens_view)} produto(s) exibido(s)"
-                + (
-                    f" em {status_escolhido}"
-                    if status_escolhido != "Todas as situações"
-                    else ""
-                )
-                + "."
-            )
-
+            ]
             st.dataframe(
-                itens_view,
+                critical_view,
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    f"Faturamento {period_days}d": st.column_config.NumberColumn(
-                        format="R$ %.2f"
-                    ),
-                    "Cobertura (dias)": st.column_config.NumberColumn(
-                        format="%.1f"
-                    ),
-                    "Valor Estoque": st.column_config.NumberColumn(
-                        format="R$ %.2f"
-                    ),
+                    "Valor Estoque": st.column_config.NumberColumn(format="R$ %.2f"),
+                    "Cobertura (dias)": st.column_config.NumberColumn(format="%.1f"),
                 },
             )
 
-    st.divider()
-    st.markdown("### Detalhamento por produto")
-    selected_line = st.selectbox(
-        "Escolha uma linha para detalhar",
-        ["Todas as linhas"] + summary["linha"].tolist(),
-        key="linha_detalhe_v2",
-    )
-    products_filtered = products.copy()
-    if selected_line != "Todas as linhas":
-        products_filtered = products_filtered[
-            products_filtered["linha"].eq(selected_line)
-        ].copy()
-
-    if selected_line != "Todas as linhas":
-        line_revenue = float(products_filtered["faturamento_periodo"].sum())
-        line_stock = float(products_filtered["valor_estoque"].sum())
-        line_high = products_filtered["status"].isin(["ALTO", "EXCESSO"])
-        line_stopped = products_filtered["status"].eq("SEM VENDA - ESTOQUE PARADO")
-        dcols = st.columns(4)
-        dcols[0].metric("SKUs da linha", len(products_filtered))
-        dcols[1].metric(f"Faturamento {period_days}d", brl(line_revenue))
-        dcols[2].metric("Valor estoque", brl(line_stock))
-        dcols[3].metric(
-            "Valor Alto/Excesso",
-            brl(products_filtered.loc[line_high, "valor_estoque"].sum()),
-        )
-
-    tab1, tab2, tab3 = st.tabs(
-        ["Produtos críticos", "Todos os produtos", "Critérios"]
-    )
-
-    with tab1:
-        crit_kind = st.radio(
-            "Visualizar",
-            ["Ruptura / Risco / Alerta", "Alto / Excesso", "Estoque parado"],
-            horizontal=True,
-            key="criticos_v2",
-        )
-        if crit_kind == "Ruptura / Risco / Alerta":
-            filtered = products_filtered[
-                products_filtered["status"].isin(["RUPTURA", "RISCO DE RUPTURA", "ALERTA"])
-            ].copy()
-        elif crit_kind == "Alto / Excesso":
-            filtered = products_filtered[
-                products_filtered["status"].isin(["ALTO", "EXCESSO"])
-            ].copy()
-        else:
-            filtered = products_filtered[
-                products_filtered["status"].eq("SEM VENDA - ESTOQUE PARADO")
-            ].copy()
-
-        critical_view = _friendly_products(filtered, long_days, period_days)[
-            [
-                "Código",
-                "Referência",
-                "Descrição",
-                "Linha",
-                "Estoque",
-                "Vendas 90d",
-                f"Vendas {long_days}d",
+        with tab2:
+            f1, f2 = st.columns(2)
+            curves = f1.multiselect(
                 "Curva ABC",
-                "Cobertura (dias)",
+                ["A", "B", "C"],
+                default=["A", "B", "C"],
+                key="filtro_curva_v2",
+            )
+            statuses = sorted(products_filtered["status"].dropna().unique().tolist())
+            selected_status = f2.multiselect(
                 "Status",
-                "Valor Estoque",
-            ]
-        ]
-        st.dataframe(
-            critical_view,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Valor Estoque": st.column_config.NumberColumn(format="R$ %.2f"),
-                "Cobertura (dias)": st.column_config.NumberColumn(format="%.1f"),
-            },
+                statuses,
+                default=statuses,
+                key="filtro_status_v2",
+            )
+            detail = products_filtered[
+                products_filtered["curva_abc"].isin(curves)
+                & products_filtered["status"].isin(selected_status)
+            ].copy()
+            product_view = _friendly_products(detail, long_days, period_days)
+            product_view["Participação Acumulada"] = product_view["Participação Acumulada"] * 100
+            st.dataframe(
+                product_view,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Preço Venda": st.column_config.NumberColumn(format="R$ %.2f"),
+                    f"Faturamento {period_days}d": st.column_config.NumberColumn(format="R$ %.2f"),
+                    "Valor Estoque": st.column_config.NumberColumn(format="R$ %.2f"),
+                    "Participação Acumulada": st.column_config.NumberColumn(format="%.1f%%"),
+                    "Cobertura (dias)": st.column_config.NumberColumn(format="%.1f"),
+                },
+            )
+
+        with tab3:
+            st.markdown(f"**Período único:** **{period_days} dias** para Curva ABC, cobertura e situação. A até **{criteria['abc_a']:.0f}%**, B até **{criteria['abc_b']:.0f}%**, C acima disso.")
+            st.markdown(
+                f"**Curva A:** <{criteria['A_ruptura']} dias RUPTURA; "
+                f"{criteria['A_ruptura']}–<{criteria['A_abaixo']} RISCO RUPTURA; "
+                f"{criteria['A_abaixo']}–{criteria['A_alerta']} ALERTA; "
+                f">{criteria['A_alerta']}–{criteria['A_ok']} OK; "
+                f">{criteria['A_ok']}–{criteria['A_alto']} ALTO; >{criteria['A_alto']} EXCESSO."
+            )
+            st.markdown(
+                f"**Curva B:** <{criteria['B_ruptura']} dias RUPTURA; "
+                f"{criteria['B_ruptura']}–<{criteria['B_abaixo']} RISCO RUPTURA; "
+                f"{criteria['B_abaixo']}–{criteria['B_alerta']} ALERTA; "
+                f">{criteria['B_alerta']}–{criteria['B_ok']} OK; "
+                f">{criteria['B_ok']}–{criteria['B_alto']} ALTO; >{criteria['B_alto']} EXCESSO."
+            )
+            st.markdown(
+                f"**Curva C:** <{criteria['C_ruptura']} dias RUPTURA; "
+                f"{criteria['C_ruptura']}–<{criteria['C_abaixo']} RISCO RUPTURA; "
+                f"{criteria['C_abaixo']}–{criteria['C_alerta']} ALERTA; "
+                f">{criteria['C_alerta']}–{criteria['C_ok']} OK; "
+                f">{criteria['C_ok']}–{criteria['C_alto']} ALTO; >{criteria['C_alto']} EXCESSO."
+            )
+            st.caption("Produto sem venda e com saldo positivo é classificado como Estoque parado. Estoque negativo permanece em classificação própria.")
+
+        export = formatted_xlsx_bytes(
+            summary=summary,
+            products=products,
+            raw=raw,
+            period_days=period_days,
+            long_days=long_days,
+            analysis_name=analysis_name,
+            criteria=criteria,
         )
 
-    with tab2:
-        f1, f2 = st.columns(2)
-        curves = f1.multiselect(
-            "Curva ABC",
-            ["A", "B", "C"],
-            default=["A", "B", "C"],
-            key="filtro_curva_v2",
+        st.download_button(
+            "Baixar relatório gerencial formatado (.xlsx)",
+            data=export,
+            file_name=f"analise_gerencial_linha_{period_days}d.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+            key="download_analise_gerencial_v2",
         )
-        statuses = sorted(products_filtered["status"].dropna().unique().tolist())
-        selected_status = f2.multiselect(
-            "Status",
-            statuses,
-            default=statuses,
-            key="filtro_status_v2",
-        )
-        detail = products_filtered[
-            products_filtered["curva_abc"].isin(curves)
-            & products_filtered["status"].isin(selected_status)
-        ].copy()
-        product_view = _friendly_products(detail, long_days, period_days)
-        product_view["Participação Acumulada"] = product_view["Participação Acumulada"] * 100
-        st.dataframe(
-            product_view,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Preço Venda": st.column_config.NumberColumn(format="R$ %.2f"),
-                f"Faturamento {period_days}d": st.column_config.NumberColumn(format="R$ %.2f"),
-                "Valor Estoque": st.column_config.NumberColumn(format="R$ %.2f"),
-                "Participação Acumulada": st.column_config.NumberColumn(format="%.1f%%"),
-                "Cobertura (dias)": st.column_config.NumberColumn(format="%.1f"),
-            },
-        )
-
-    with tab3:
-        st.markdown(f"**Período único:** **{period_days} dias** para Curva ABC, cobertura e situação. A até **{criteria['abc_a']:.0f}%**, B até **{criteria['abc_b']:.0f}%**, C acima disso.")
-        st.markdown(
-            f"**Curva A:** <{criteria['A_ruptura']} dias RUPTURA; "
-            f"{criteria['A_ruptura']}–<{criteria['A_abaixo']} RISCO RUPTURA; "
-            f"{criteria['A_abaixo']}–{criteria['A_alerta']} ALERTA; "
-            f">{criteria['A_alerta']}–{criteria['A_ok']} OK; "
-            f">{criteria['A_ok']}–{criteria['A_alto']} ALTO; >{criteria['A_alto']} EXCESSO."
-        )
-        st.markdown(
-            f"**Curva B:** <{criteria['B_ruptura']} dias RUPTURA; "
-            f"{criteria['B_ruptura']}–<{criteria['B_abaixo']} RISCO RUPTURA; "
-            f"{criteria['B_abaixo']}–{criteria['B_alerta']} ALERTA; "
-            f">{criteria['B_alerta']}–{criteria['B_ok']} OK; "
-            f">{criteria['B_ok']}–{criteria['B_alto']} ALTO; >{criteria['B_alto']} EXCESSO."
-        )
-        st.markdown(
-            f"**Curva C:** <{criteria['C_ruptura']} dias RUPTURA; "
-            f"{criteria['C_ruptura']}–<{criteria['C_abaixo']} RISCO RUPTURA; "
-            f"{criteria['C_abaixo']}–{criteria['C_alerta']} ALERTA; "
-            f">{criteria['C_alerta']}–{criteria['C_ok']} OK; "
-            f">{criteria['C_ok']}–{criteria['C_alto']} ALTO; >{criteria['C_alto']} EXCESSO."
-        )
-        st.caption("Produto sem venda e com saldo positivo é classificado como Estoque parado. Estoque negativo permanece em classificação própria.")
-
-    export = formatted_xlsx_bytes(
-        summary=summary,
-        products=products,
-        raw=raw,
-        period_days=period_days,
-        long_days=long_days,
-        analysis_name=analysis_name,
-        criteria=criteria,
-    )
-
-    st.download_button(
-        "Baixar relatório gerencial formatado (.xlsx)",
-        data=export,
-        file_name=f"analise_gerencial_linha_{period_days}d.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        type="primary",
-        key="download_analise_gerencial_v2",
-    )
