@@ -1078,7 +1078,8 @@ def _excel_pie_image(
         txt.set_weight("bold")
 
     ax.axis("equal")
-    ax.text(0, 0, "100%\\nFATURAMENTO", ha="center", va="center",\n            fontsize=10, color="#17365D", fontweight="bold")
+    ax.text(0, 0, "100%\\nFATURAMENTO", ha="center", va="center",
+            fontsize=10, color="#17365D", fontweight="bold")
 
     fig.suptitle(
         title,
