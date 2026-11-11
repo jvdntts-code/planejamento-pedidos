@@ -832,7 +832,7 @@ def render_sellout():
             "GITHUB_DATA_REPO e GITHUB_TOKEN nos Secrets do Streamlit."
         )
 
-    with st.expander("Importar ou atualizar relatórios", expanded=base.empty):
+    with st.sidebar.expander("📁 Relatórios de Sell-out", expanded=base.empty):
         st.caption(
             "Envie um ou vários relatórios XLSX, XLS ou CSV. Os arquivos são consolidados "
             "automaticamente. Ao importar novamente uma marca e um mês já existentes, "
