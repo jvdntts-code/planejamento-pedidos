@@ -2347,9 +2347,6 @@ def render_analise_linha():
         period_days,
     )
 
-    from stock_verdict import render_brand_verdict
-    render_brand_verdict(products)
-
     st.divider()
     st.markdown("### Visão geral da marca")
 
