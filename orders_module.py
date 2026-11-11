@@ -1569,28 +1569,6 @@ def render_gestao_pedidos():
     if load_error:
         st.warning(load_error)
 
-    selected_supplier = st.session_state.get("gestao_fornecedor_selecionado")
-    if selected_supplier:
-        supplier_cycle = _supplier_cycle(supplier_cycles, selected_supplier)
-        _render_supplier_history(library, selected_supplier, supplier_cycle)
-        return
-
-    selected_id = st.session_state.get("gestao_pedido_selecionado")
-    if selected_id and selected_id in library:
-        selected_supplier_key = _supplier_key(
-            library[selected_id].get("header", {})
-        )
-        supplier_cycle = _supplier_cycle(
-            supplier_cycles,
-            selected_supplier_key,
-        )
-        _render_order_detail(library[selected_id], supplier_cycle, library)
-        return
-    elif selected_id:
-        st.session_state["gestao_pedido_selecionado"] = None
-
-    st.markdown("### Pedidos anexados")
-
     upload_flash = st.session_state.pop("gestao_upload_flash", "")
     if upload_flash:
         st.success(upload_flash)
@@ -1599,7 +1577,7 @@ def render_gestao_pedidos():
     for error in upload_errors:
         st.error(error)
 
-    with st.expander("Anexar pedido(s) em PDF", expanded=not bool(library)):
+    with st.sidebar.expander("📁 Anexar pedidos em PDF", expanded=not bool(library)):
         st.caption(
             "Você pode selecionar vários PDFs de uma vez. Cada arquivo será transformado em um pedido."
         )
@@ -1636,8 +1614,30 @@ def render_gestao_pedidos():
             for error in errors:
                 st.error(error)
 
+    selected_supplier = st.session_state.get("gestao_fornecedor_selecionado")
+    if selected_supplier:
+        supplier_cycle = _supplier_cycle(supplier_cycles, selected_supplier)
+        _render_supplier_history(library, selected_supplier, supplier_cycle)
+        return
+
+    selected_id = st.session_state.get("gestao_pedido_selecionado")
+    if selected_id and selected_id in library:
+        selected_supplier_key = _supplier_key(
+            library[selected_id].get("header", {})
+        )
+        supplier_cycle = _supplier_cycle(
+            supplier_cycles,
+            selected_supplier_key,
+        )
+        _render_order_detail(library[selected_id], supplier_cycle, library)
+        return
+    elif selected_id:
+        st.session_state["gestao_pedido_selecionado"] = None
+
+    st.markdown("### Pedidos anexados")
+
     if not library:
-        st.info("Ainda não há pedidos anexados. Use a opção acima para adicionar o primeiro PDF.")
+        st.info("Ainda não há pedidos anexados. Use o painel de PDFs no menu lateral para importar o primeiro pedido.")
         return
 
     search = st.text_input(
