@@ -1965,69 +1965,71 @@ def render_analise_linha():
         "e produtos parados — direto do relatório bruto do sistema."
     )
 
-    st.markdown("### Importação dos relatórios")
-
-    st.caption(
-        "Acesse os relatórios no Metabase, faça o download e importe cada arquivo no campo correspondente."
-    )
-    link1, link2 = st.columns(2)
-    with link1:
-        st.link_button(
-            "Abrir Lista de Produtos por Marca",
-            "http://metabase.samarc.com.br/question/510-lista-de-produtos-por-marca?marca=",
-            use_container_width=True,
+    with st.expander(
+        "📁 Importar ou trocar relatórios",
+        expanded=not bool(st.session_state.get("linha_raw_v2")),
+    ):
+        st.caption(
+            "Acesse os relatórios no Metabase, faça o download e importe cada arquivo no campo correspondente."
         )
-    with link2:
-        st.link_button(
-            "Abrir Vendas Produtos",
-            "http://metabase.samarc.com.br/question/1540-vendas-produtos?Data2=&Periodo=&Descricao=&similar=&Grupo=&Data1=&Total_Vendido=&Descricao_Precisa=&Codigo_interno=&Marca=&Aplicacao=",
-            use_container_width=True,
-        )
+        link1, link2 = st.columns(2)
+        with link1:
+            st.link_button(
+                "Abrir Lista de Produtos por Marca",
+                "http://metabase.samarc.com.br/question/510-lista-de-produtos-por-marca?marca=",
+                use_container_width=True,
+            )
+        with link2:
+            st.link_button(
+                "Abrir Vendas Produtos",
+                "http://metabase.samarc.com.br/question/1540-vendas-produtos?Data2=&Periodo=&Descricao=&similar=&Grupo=&Data1=&Total_Vendido=&Descricao_Precisa=&Codigo_interno=&Marca=&Aplicacao=",
+                use_container_width=True,
+            )
 
-    col_import, col_modelo = st.columns([2.2, 1])
-    with col_import:
-        uploaded = st.file_uploader(
-            "Lista de Produtos por Marca",
-            type=["xlsx", "xls", "csv"],
-            key="linha_raw_v2",
-            help="Importe o relatório bruto da Lista de Produtos por Marca.",
-        )
-        sales_price_file = st.file_uploader(
-            "Vendas Produtos (opcional, para preço de venda)",
-            type=["xlsx", "xls", "csv"],
-            key="linha_sales_price_v2",
-            help="Quando importado, o NEXO cruza pelo código do produto e usa o preço de venda deste arquivo nas análises financeiras.",
-        )
+        col_import, col_modelo = st.columns([2.2, 1])
+        with col_import:
+            uploaded = st.file_uploader(
+                "Lista de Produtos por Marca",
+                type=["xlsx", "xls", "csv"],
+                key="linha_raw_v2",
+                help="Importe o relatório bruto da Lista de Produtos por Marca.",
+            )
+            sales_price_file = st.file_uploader(
+                "Vendas Produtos (opcional, para preço de venda)",
+                type=["xlsx", "xls", "csv"],
+                key="linha_sales_price_v2",
+                help="Quando importado, o NEXO cruza pelo código do produto e usa o preço de venda deste arquivo nas análises financeiras.",
+            )
 
-    with col_modelo:
-        st.markdown("**Primeira vez usando?**")
-        st.download_button(
-            "Baixar modelo de importação",
-            data=line_import_template_bytes(),
-            file_name="NEXO_modelo_importacao_analise_linha.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-            key="download_modelo_analise_linha",
-        )
+        with col_modelo:
+            st.markdown("**Primeira vez usando?**")
+            st.download_button(
+                "Baixar modelo de importação",
+                data=line_import_template_bytes(),
+                file_name="NEXO_modelo_importacao_analise_linha.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key="download_modelo_analise_linha",
+            )
 
-    with st.expander("Como preparar o arquivo para a Análise de Linha"):
-        st.markdown(
-            """
-            **Para evitar erros na importação:**
+        with st.expander("Como preparar o arquivo para a Análise de Linha"):
+            st.markdown(
+                """
+                **Para evitar erros na importação:**
 
-            - use o modelo oficial disponibilizado acima;
-            - mantenha os nomes dos cabeçalhos;
-            - coloque **um produto por linha**;
-            - informe código, descrição, referência, código da linha e nome da linha;
-            - estoque, mínimo e vendas devem ser valores numéricos;
-            - mantenha o preço de custo da Lista por Marca; para a análise financeira, você pode importar também o arquivo **Vendas Produtos**;
-            - mantenha as vendas acumuladas de **30, 60, 90 e 360/365 dias**;
-            - não coloque totais ou subtotais no meio da base;
-            - consulte as abas **INSTRUCOES**, **DICIONARIO** e **EXEMPLO** dentro do arquivo modelo.
+                - use o modelo oficial disponibilizado acima;
+                - mantenha os nomes dos cabeçalhos;
+                - coloque **um produto por linha**;
+                - informe código, descrição, referência, código da linha e nome da linha;
+                - estoque, mínimo e vendas devem ser valores numéricos;
+                - mantenha o preço de custo da Lista por Marca; para a análise financeira, você pode importar também o arquivo **Vendas Produtos**;
+                - mantenha as vendas acumuladas de **30, 60, 90 e 360/365 dias**;
+                - não coloque totais ou subtotais no meio da base;
+                - consulte as abas **INSTRUCOES**, **DICIONARIO** e **EXEMPLO** dentro do arquivo modelo.
 
-            O NEXO valida o relatório antes da análise e informa exatamente quais colunas obrigatórias estão faltando.
-            """
-        )
+                O NEXO valida o relatório antes da análise e informa exatamente quais colunas obrigatórias estão faltando.
+                """
+            )
 
     if not uploaded:
         st.info(
