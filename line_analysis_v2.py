@@ -129,7 +129,7 @@ def num(series, default=0):
 def read_file(uploaded):
     name = uploaded.name.lower()
     raw = uploaded.getvalue()
-    if name.endswith((".xlsx", ".xls")):
+    if name.endswith((".xlsx", ".xls", ".xlsm")):
         return pd.read_excel(io.BytesIO(raw))
     if name.endswith(".csv"):
         for enc in ("utf-8-sig", "utf-8", "latin-1"):
@@ -137,7 +137,7 @@ def read_file(uploaded):
                 return pd.read_csv(io.BytesIO(raw), sep=None, engine="python", encoding=enc)
             except Exception:
                 pass
-    raise ValueError("Arquivo não reconhecido. Use XLSX, XLS ou CSV.")
+    raise ValueError("Arquivo não reconhecido. Use XLSX, XLSM, XLS ou CSV.")
 
 
 def line_import_template_bytes():
@@ -1972,13 +1972,13 @@ def render_analise_linha():
     ):
         uploaded = st.file_uploader(
             "Lista de Produtos por Marca",
-            type=["xlsx", "xls", "csv"],
+            type=["xlsx", "xlsm", "xls", "csv"],
             key="linha_raw_v2",
             help="Relatório principal, com estoque e histórico de vendas.",
         )
         sales_price_file = st.file_uploader(
             "Vendas Produtos (preços de venda)",
-            type=["xlsx", "xls", "csv"],
+            type=["xlsx", "xlsm", "xls", "csv"],
             key="linha_sales_price_v2",
             help="Opcional. Atualiza os preços de venda pelo código do produto.",
         )
@@ -2023,6 +2023,7 @@ def render_analise_linha():
     try:
         raw = read_file(uploaded)
         base, long_days = standardize_line_report(raw)
+        sales_raw = None
 
         if sales_price_file is not None:
             sales_raw = read_file(sales_price_file)
@@ -2050,11 +2051,51 @@ def render_analise_linha():
         st.error(str(exc))
         return
 
-    with st.sidebar:
-        analysis_name = st.text_input(
-            "Nome da análise / marca",
-            value=uploaded.name.rsplit(".", 1)[0],
-            key="nome_analise_linha_v2",
+    from brand_identity import identify_brand
+
+    try:
+        detected_brand, identified, total_brand_codes, brand_origin = identify_brand(
+            base, raw, sales_raw
+        )
+    except ValueError as exc:
+        st.error(f"Não é possível identificar com segurança a marca: {exc}")
+        return
+
+    if detected_brand:
+        analysis_name = detected_brand
+        st.markdown(f"### Marca analisada: {analysis_name}")
+        st.caption(
+            f"Marca identificada pelos códigos dos produtos em {brand_origin}: "
+            f"{identified} de {total_brand_codes} produtos."
+        )
+        if identified < total_brand_codes:
+            st.warning(
+                f"A marca não foi confirmada para {total_brand_codes - identified} produto(s). "
+                "Confirme se ambos os relatórios foram filtrados para a mesma marca. "
+                "Os indicadores abaixo abrangem toda a Lista de Produtos por Marca."
+            )
+    else:
+        with st.sidebar:
+            analysis_name = st.text_input(
+                "Marca da análise (não consta nos arquivos)",
+                value="",
+                key="marca_linha_manual",
+                placeholder="Ex.: ASX",
+                help=(
+                    "A Lista de Produtos por Marca não contém o nome da marca. "
+                    "Informe-a manualmente ou importe Vendas Produtos com a coluna Marca."
+                ),
+            ).strip().upper()
+        if not analysis_name:
+            st.warning(
+                "Não foi possível identificar a marca nos relatórios. "
+                "Informe a marca no menu lateral ou importe Vendas Produtos com a coluna Marca."
+            )
+            return
+        st.markdown(f"### Marca analisada: {analysis_name}")
+        st.caption(
+            "Marca informada manualmente, não comprovada pelos relatórios. "
+            "Verifique se a base corresponde somente a esta marca."
         )
 
     if "line_criteria_persistent_loaded" not in st.session_state:
