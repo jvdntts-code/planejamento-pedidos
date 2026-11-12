@@ -444,6 +444,97 @@ def _render_active_reminders(tasks, now):
             st.rerun()
 
 
+
+def _render_compact_tasks(tasks, now):
+    """Agenda enxuta para acompanhar o trabalho numa janela pequena."""
+    st.markdown("""
+    <style>
+    .block-container {max-width:620px; padding:1rem .75rem 2rem;}
+    section[data-testid="stSidebar"] {display:none;}
+    .block-container h1 {font-size:1.35rem !important;}
+    .block-container h3 {font-size:1rem !important; margin:0;}
+    .block-container [data-testid="stVerticalBlock"] {gap:.5rem;}
+    .block-container [data-testid="stHorizontalBlock"] {flex-wrap:wrap;}
+    </style>
+    """, unsafe_allow_html=True)
+    today = now.date()
+    view = st.radio("Mostrar", ["Hoje", "Pendentes", "Em andamento"], horizontal=True, key="compact_view")
+    with st.expander("Buscar ou adicionar tarefa"):
+        query = st.text_input("Buscar", key="compact_search")
+        with st.form("compact_add", clear_on_submit=True):
+            title = st.text_input("Nova tarefa", placeholder="Ex.: Enviar cotação 93869")
+            due_day = st.date_input("Dia", value=today)
+            due_time = st.time_input("Até que horas?", value=time(18))
+            add = st.form_submit_button("Adicionar", use_container_width=True)
+        if add:
+            if not title.strip():
+                st.error("Informe a tarefa.")
+            else:
+                tasks.insert(0, {
+                    "id": uuid.uuid4().hex, "title": title.strip(), "description": "",
+                    "area": "Trabalho", "category": "Outro", "due_date": due_day.isoformat(),
+                    "due_time": due_time.strftime("%H:%M"), "priority": "Média",
+                    "status": "Pendente", "checklist": [], "reminder_minutes": [],
+                    "snooze_until": "", "created_at": now.isoformat(timespec="seconds"),
+                    "completed_at": "",
+                })
+                _persist(tasks, "Tarefa adicionada e salva.")
+                st.rerun()
+    day = [t for t in tasks if _parse_date(t.get("due_date")) == today]
+    done = sum(t.get("status") == "Concluída" for t in day)
+    if day:
+        st.progress(done / len(day), text=f"Hoje: {done}/{len(day)} concluídas")
+    visible = []
+    for task in tasks:
+        if task.get("status") == "Concluída":
+            continue
+        due = _task_due_datetime(task)
+        if view == "Hoje" and (due is None or due.date() != today):
+            continue
+        if view == "Em andamento" and task.get("status") != "Em andamento":
+            continue
+        if query.strip() and query.casefold().strip() not in (
+            str(task.get("title", "")) + " " + str(task.get("description", "")) + " " + _checklist_text(task)
+        ).casefold():
+            continue
+        visible.append(task)
+    visible.sort(key=lambda t: (_task_due_datetime(t) or datetime.max, _priority_rank(t.get("priority"))))
+    st.caption(f"{len(visible)} pendente(s) • {today.strftime('%d/%m')}")
+    if not visible:
+        st.info("Nenhuma tarefa nesta visualização.")
+    for task in visible:
+        task_id = task["id"]
+        with st.container(border=True):
+            st.markdown("### " + str(task.get("title", "Sem título")))
+            due = _task_due_datetime(task)
+            label = due.strftime("%H:%M") if due and due.date() == today else _format_due(task)
+            st.caption(f"{label} • {task.get('priority', 'Média')} • {task.get('status', 'Pendente')}"
+                       + (" • Atrasada" if due and due < now else ""))
+            left, right = st.columns(2)
+            if left.button("✓ Concluir", key=f"compact_done_{task_id}", use_container_width=True):
+                _set_task_status(tasks, task_id, "Concluída")
+                _persist(tasks, "Tarefa concluída e salva.")
+                st.rerun()
+            next_status = "Pendente" if task.get("status") == "Em andamento" else "Em andamento"
+            if right.button("Pausar" if next_status == "Pendente" else "Iniciar",
+                            key=f"compact_start_{task_id}", use_container_width=True):
+                _set_task_status(tasks, task_id, next_status)
+                _persist(tasks, "Situação atualizada e salva.")
+                st.rerun()
+            checklist = [i for i in task.get("checklist", []) if isinstance(i, dict) and i.get("text")]
+            if task.get("description") or checklist:
+                with st.expander("Detalhes / checklist"):
+                    if task.get("description"):
+                        st.write(task["description"])
+                    for index, item in enumerate(checklist):
+                        value = st.checkbox(str(item["text"]), value=bool(item.get("done")),
+                                            key=f"compact_check_{task_id}_{item.get('id', index)}")
+                        if value != bool(item.get("done")):
+                            item["done"] = value
+                            _persist(tasks, "Checklist atualizado e salvo.")
+                            st.rerun()
+
+
 def render_tasks():
     if not is_legacy_owner():
         st.error("Esta área é privada e está disponível apenas no seu login.")
@@ -462,9 +553,7 @@ def render_tasks():
         st.error(st.session_state["tasks_load_error"])
         st.caption("Corrija a conexão e clique em Atualizar tarefas para carregar sua agenda.")
         return
-    st.caption(
-        "Organize trabalho, faculdade e vida pessoal com prazos, Checklist e lembretes."
-    )
+    compact = st.toggle("Modo compacto", key="tasks_compact_mode", help="Reduz os controles para acompanhar as tarefas numa janela pequena. Desative para voltar à visão completa.")
 
     _, _, token = _settings()
     if not token:
@@ -480,6 +569,10 @@ def render_tasks():
             st.success(feedback)
         else:
             st.info(feedback)
+
+    if compact:
+        _render_compact_tasks(tasks, now)
+        return
 
     pending_tasks = [
         task for task in tasks if task.get("status") != "Concluída"
