@@ -1,4 +1,5 @@
 import base64
+import copy
 import json
 import urllib.error
 import urllib.parse
@@ -196,15 +197,18 @@ def _load_state():
     if "personal_tasks_loaded" not in st.session_state:
         tasks, error = _read_tasks()
         st.session_state["personal_tasks"] = tasks
-        st.session_state["personal_tasks_loaded"] = True
+        st.session_state["personal_tasks_loaded"] = not bool(error)
+        st.session_state["tasks_load_error"] = error or ""
         if error:
             st.session_state["tasks_feedback"] = error
     return st.session_state.get("personal_tasks", [])
 
 
 def _persist(tasks, success_text="Tarefas atualizadas."):
-    st.session_state["personal_tasks"] = tasks
     ok, message = _save_tasks(tasks)
+    if ok:
+        st.session_state["personal_tasks"] = copy.deepcopy(tasks)
+    st.session_state["tasks_save_failed"] = not ok
     if ok:
         st.session_state["tasks_feedback"] = success_text
     else:
@@ -445,11 +449,19 @@ def render_tasks():
         st.error("Esta área é privada e está disponível apenas no seu login.")
         return
 
-    tasks = _load_state()
+    tasks = copy.deepcopy(_load_state())
     now = _now()
     today = now.date()
 
-    st.title("Agenda e Tarefas")
+    heading, refresh = st.columns([4, 1])
+    heading.title("Minhas Tarefas")
+    if refresh.button("Atualizar tarefas", use_container_width=True):
+        st.session_state.pop("personal_tasks_loaded", None)
+        st.rerun()
+    if st.session_state.get("tasks_load_error"):
+        st.error(st.session_state["tasks_load_error"])
+        st.caption("Corrija a conexão e clique em Atualizar tarefas para carregar sua agenda.")
+        return
     st.caption(
         "Organize trabalho, faculdade e vida pessoal com prazos, Checklist e lembretes."
     )
@@ -462,7 +474,9 @@ def render_tasks():
 
     feedback = st.session_state.pop("tasks_feedback", "")
     if feedback:
-        if any(word in feedback.lower() for word in ("salv", "atualiz", "conclu", "adicion")):
+        if st.session_state.get("tasks_save_failed"):
+            st.error(feedback)
+        elif any(word in feedback.lower() for word in ("salv", "atualiz", "conclu", "adicion")):
             st.success(feedback)
         else:
             st.info(feedback)
@@ -492,9 +506,42 @@ def render_tasks():
     c3.metric("Próximas 24h", next_24h_count)
     c4.metric("Atrasadas", overdue_count)
 
-    _render_active_reminders(tasks, now)
+    day_tasks = [t for t in tasks if _parse_date(t.get("due_date")) == today]
+    day_done = sum(t.get("status") == "Concluída" for t in day_tasks)
+    if day_tasks:
+        st.progress(day_done / len(day_tasks), text=f"Hoje: {day_done} de {len(day_tasks)} tarefas concluídas")
+    in_progress = [t for t in pending_tasks if t.get("status") == "Em andamento"]
+    if in_progress:
+        st.info("Em foco: " + " • ".join(t.get("title", "") for t in in_progress[:3]))
+    active_count = sum(_reminder_is_active(t, now) for t in tasks)
+    if active_count:
+        with st.expander(f"Lembretes e atrasos ({active_count})", expanded=False):
+            _render_active_reminders(tasks, now)
 
-    with st.expander("Nova tarefa", expanded=not tasks):
+    with st.expander("Adicionar tarefa rápida", expanded=False):
+        with st.form("quick_task", clear_on_submit=True):
+            quick_title = st.text_input("O que precisa fazer?", key="quick_title")
+            q1, q2, q3 = st.columns(3)
+            quick_date = q1.date_input("Dia", value=today, key="quick_date")
+            quick_time = q2.time_input("Até que horas?", value=time(18), key="quick_time")
+            quick_priority = q3.selectbox("Prioridade", PRIORITIES, index=1, key="quick_priority")
+            quick_submit = st.form_submit_button("Adicionar", use_container_width=True)
+        if quick_submit:
+            if not quick_title.strip():
+                st.error("Informe o título da tarefa.")
+            else:
+                tasks.insert(0, {
+                    "id": uuid.uuid4().hex, "title": quick_title.strip(),
+                    "description": "", "area": "Trabalho", "category": "Outro",
+                    "due_date": quick_date.isoformat(), "due_time": quick_time.strftime("%H:%M"),
+                    "priority": quick_priority, "status": "Pendente", "checklist": [],
+                    "reminder_minutes": [], "snooze_until": "",
+                    "created_at": now.isoformat(timespec="seconds"), "completed_at": "",
+                })
+                _persist(tasks, "Tarefa adicionada e salva.")
+                st.rerun()
+
+    with st.expander("Nova tarefa com detalhes e checklist", expanded=False):
         with st.form("new_task_form", clear_on_submit=True):
             title = st.text_input(
                 "Título da tarefa",
@@ -581,8 +628,10 @@ def render_tasks():
     view = f1.selectbox(
         "Visualizar",
         [
-            "Pendentes",
             "Hoje",
+            "Pendentes",
+            "Em andamento",
+            "Data específica",
             "Próximas 24h",
             "Próximos 7 dias",
             "Atrasadas",
@@ -601,13 +650,21 @@ def render_tasks():
         placeholder="Todas",
     )
 
+    search = st.text_input("Buscar tarefa", placeholder="Título, observação ou item do checklist", key="tasks_search")
+    selected_day = st.date_input("Dia da agenda", value=today, key="tasks_selected_day") if view == "Data específica" else today
+    sort_order = st.selectbox("Ordenar por", ["Horário / prazo", "Prioridade", "Situação"], key="tasks_sort")
+
     filtered = []
     for task in tasks:
         due = _task_due_datetime(task)
         status = task.get("status", "Pendente")
         include = True
 
-        if view == "Pendentes":
+        if view == "Em andamento":
+            include = status == "Em andamento"
+        elif view == "Data específica":
+            include = due is not None and due.date() == selected_day
+        elif view == "Pendentes":
             include = status != "Concluída"
         elif view == "Hoje":
             include = (
@@ -641,6 +698,9 @@ def render_tasks():
         if priority_filter:
             include = include and task.get("priority") in priority_filter
 
+        if search.strip():
+            haystack = " ".join([str(task.get("title", "")), str(task.get("description", "")), _checklist_text(task)]).casefold()
+            include = include and search.strip().casefold() in haystack
         if include:
             filtered.append(task)
 
@@ -652,6 +712,12 @@ def render_tasks():
             str(task.get("title", "")).casefold(),
         )
     )
+
+    if sort_order == "Prioridade":
+        filtered.sort(key=lambda t: (t.get("status") == "Concluída", _priority_rank(t.get("priority")), _task_due_datetime(t) or datetime.max))
+    elif sort_order == "Situação":
+        filtered.sort(key=lambda t: (STATUSES.index(t.get("status")) if t.get("status") in STATUSES else 0, _task_due_datetime(t) or datetime.max))
+    st.caption(f"{len(filtered)} tarefa(s) nesta visualização • Use Atualizar tarefas para buscar alterações salvas fora desta sessão.")
 
     if not filtered:
         st.info("Nenhuma tarefa encontrada neste filtro.")
@@ -679,7 +745,8 @@ def render_tasks():
                 st.caption("  •  ".join(meta))
 
                 if task.get("description"):
-                    st.write(task["description"])
+                    with st.expander("Observações / programação", expanded=False):
+                        st.write(task["description"])
 
                 checklist = [
                     item
@@ -748,6 +815,21 @@ def render_tasks():
                         _set_task_status(tasks, task_id, "Pendente")
                         _persist(tasks, "Tarefa reaberta e salva.")
                         st.rerun()
+
+                if task.get("status") != "Concluída":
+                    with st.expander("Reprogramar", expanded=False):
+                        with st.form(f"reschedule_{task_id}"):
+                            r1, r2 = st.columns(2)
+                            original_due = _task_due_datetime(task)
+                            target_day = r1.date_input("Novo dia", value=original_due.date() if original_due else today)
+                            target_time = r2.time_input("Novo horário", value=original_due.time() if original_due else time(18))
+                            move = st.form_submit_button("Salvar novo prazo")
+                        if move:
+                            task["due_date"] = target_day.isoformat()
+                            task["due_time"] = target_time.strftime("%H:%M")
+                            task["snooze_until"] = ""
+                            _persist(tasks, "Prazo atualizado e salvo.")
+                            st.rerun()
 
                 edit_key = f"edit_open_{task_id}"
                 if a3.button(
