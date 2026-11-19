@@ -641,6 +641,65 @@ with st.sidebar:
                 key='plan_abc_dias_c',
             ),
         }
+        st.markdown('---')
+        negociar_desconto = st.checkbox(
+            'Simular meta de peças para desconto',
+            value=False,
+            disabled=not simular_abc,
+            key='plan_desconto_ativar',
+            help=(
+                'Compara a compra necessária com uma compra ampliada até o limite de peças '
+                'para tentar obter desconto no pedido inteiro. Não altera o pedido atual.'
+            ),
+        )
+        if negociar_desconto:
+            meta_fornecedor = st.number_input(
+                'Meta do fornecedor / limite máximo de peças',
+                min_value=1, max_value=10000000, value=34500, step=100,
+                key='plan_desconto_meta',
+            )
+            percentual_desconto = st.number_input(
+                'Desconto sobre o pedido inteiro (%)',
+                min_value=0.0, max_value=99.99, value=5.0,
+                step=0.5, format='%.2f',
+                key='plan_desconto_percentual',
+            )
+            st.caption(
+                'Peças normais primeiro (A → B → C); somente depois, '
+                'peças adicionais até os limites extraordinários.'
+            )
+            dias_extras = {
+                'A': st.number_input(
+                    'Curva A — dias extras para negociação',
+                    min_value=0, max_value=365, value=30, step=5,
+                    key='plan_desconto_extra_a',
+                ),
+                'B': st.number_input(
+                    'Curva B — dias extras para negociação',
+                    min_value=0, max_value=365, value=15, step=5,
+                    key='plan_desconto_extra_b',
+                ),
+                'C': st.number_input(
+                    'Curva C — dias extras para negociação',
+                    min_value=0, max_value=365, value=0, step=5,
+                    key='plan_desconto_extra_c',
+                ),
+            }
+            arquivo_custo_negociacao = st.file_uploader(
+                'Custos unitários de compra (opcional)',
+                type=['xlsx', 'xls', 'csv'],
+                key='plan_desconto_custos',
+                help=(
+                    'Planilha com Código e Custo Unitário. Só com custos válidos '
+                    'o NEXO calcula desconto e desembolso em reais. '
+                    'Preços de venda zerados não serão usados como custo.'
+                ),
+            )
+            st.caption(
+                'A meta é limite máximo e condição exata para obter o desconto. '
+                'Se o NEXO sugerir menos peças, o desconto não será aplicado. '
+                'Sem custo unitário confiável, somente quantidades e coberturas.'
+            )
         pendencia_antes_entrega = st.checkbox(
             'Incluir pendências confirmadas para chegada até a reposição',
             value=False,
@@ -1174,6 +1233,217 @@ if simular_abc:
                 key='plan_abc_download_simulacao',
                 use_container_width=False,
             )
+
+            if negociar_desconto:
+                st.divider()
+                st.subheader('Planejador de negociação por volume')
+                st.caption(
+                    'Compare a necessidade normal com a proposta para atingir a meta '
+                    'do fornecedor. Nenhum pedido é enviado automaticamente.'
+                )
+                from discount_planning import (
+                    load_unit_costs, simulate_discount_negotiation
+                )
+                metas_ampliadas = {
+                    curva: int(dias_abc[curva]) + int(dias_extras[curva])
+                    for curva in ('A', 'B', 'C')
+                }
+                valores_custo = None
+                try:
+                    if any(dias > 3650 for dias in metas_ampliadas.values()):
+                        raise ValueError(
+                            'Cobertura normal + extraordinária não pode superar 3.650 dias.'
+                        )
+                    if arquivo_custo_negociacao is not None:
+                        valores_custo, custos_invalidos = load_unit_costs(
+                            read_file(arquivo_custo_negociacao)
+                        )
+                        if custos_invalidos:
+                            st.warning(
+                                f'{len(custos_invalidos)} código(s) com custo zero ou inválido '
+                                'não poderão ter avaliação financeira até a correção.'
+                            )
+                    plano_ampliado = build_coverage_plan(
+                        base, necessidades, snapshot, metas_ampliadas, leadtime_dias,
+                        pend_by_code=pend_map,
+                        include_pending=bool(
+                            pendencia_antes_entrega and abater_pendencia and pend_up
+                        ),
+                    )
+                    resultado_negociacao = simulate_discount_negotiation(
+                        simulacao_abc, plano_ampliado,
+                        limit_units=int(meta_fornecedor),
+                        discount_pct=float(percentual_desconto),
+                        unit_costs=valores_custo,
+                    )
+                except ValueError as exc:
+                    st.error(f'Não foi possível simular a negociação: {exc}')
+                else:
+                    rn = resultado_negociacao
+                    cmeta, cnormal, cproposta, csaldo = st.columns(4)
+                    cmeta.metric('Meta do fornecedor', f"{rn['target_units']:,.0f}".replace(',', '.'))
+                    cnormal.metric('Compra necessária', f"{rn['normal_units']:,.0f}".replace(',', '.'))
+                    cproposta.metric('Proposta de compra', f"{rn['proposed_units']:,.0f}".replace(',', '.'))
+                    csaldo.metric('Peças faltantes para a meta', f"{rn['remaining_units']:,.0f}".replace(',', '.'))
+                    if rn['discount_achieved']:
+                        st.success(
+                            f"Meta de {rn['target_units']:,.0f} peças atingida. "
+                            f"Desconto de {rn['discount_pct']:.2f}% condicionado "
+                            "à confirmação do fornecedor.".replace(',', '.')
+                        )
+                    else:
+                        st.warning(
+                            f"Meta NÃO atingida: faltam {rn['remaining_units']:,.0f} peças. "
+                            "O desconto não foi aplicado ao cenário financeiro. "
+                            "A sugestão preserva as metas extraordinárias e embalagens.".replace(',', '.')
+                        )
+                    if not rn['normal_fully_covered']:
+                        st.warning(
+                            'O limite de peças não foi suficiente para atender '
+                            'toda a compra normal. Nenhuma peça extraordinária '
+                            'foi distribuída antes de concluir as necessidades normais.'
+                        )
+                    st.caption(
+                        f"{rn['extra_units']:,.0f} peças adicionais acima da distribuição "
+                        f"normal · {rn['proposed_skus']} SKUs com compra · "
+                        f"{rn['blocked_skus']} registros fora da distribuição. "
+                        'Etapa normal: A → B → C. Etapa extraordinária: A → B → C.'
+                    )
+                    st.markdown('#### Cobertura e quantidade sugerida por produto')
+                    tabela_negociacao = rn['table']
+                    compras_negociacao = tabela_negociacao.loc[
+                        pd.to_numeric(
+                            tabela_negociacao['Compra proposta (peças)'], errors='coerce'
+                        ).fillna(0).gt(0)
+                    ].copy()
+                    columns_offer = [
+                        'Código', 'Referência', 'Descrição', 'Curva ABC',
+                        'Necessidade normal (peças)', 'Peças extras para desconto',
+                        'Compra proposta (peças)', 'Embalagem',
+                        'Cobertura atual (dias)', 'Cobertura na chegada (dias)',
+                        'Cobertura compra normal (dias)', 'Cobertura proposta (dias)',
+                        'Dias acima da meta normal',
+                        'Dias acima do teto extraordinário', 'Resultado',
+                    ]
+                    if compras_negociacao.empty:
+                        st.info(
+                            'Nenhum produto elegível recebeu sugestão de compra. '
+                            'Confira a classificação ABC, os estoques e a demanda.'
+                        )
+                    else:
+                        st.dataframe(
+                            compras_negociacao[columns_offer],
+                            use_container_width=True, hide_index=True,
+                        )
+                    acima_extra = tabela_negociacao[
+                        pd.to_numeric(
+                            tabela_negociacao['Dias acima do teto extraordinário'],
+                            errors='coerce',
+                        ).fillna(0).gt(0.01)
+                        & pd.to_numeric(
+                            tabela_negociacao['Compra proposta (peças)'], errors='coerce'
+                        ).fillna(0).gt(0)
+                    ]
+                    if not acima_extra.empty:
+                        st.warning(
+                            f"{len(acima_extra)} produto(s) ultrapassam o teto "
+                            'extraordinário devido a múltiplos de embalagem. '
+                            'Confira-os antes de aprovar a negociação.'
+                        )
+                    if rn['financial'] is None:
+                        if arquivo_custo_negociacao is None:
+                            st.info(
+                                'Para avaliar o desconto em reais, importe opcionalmente '
+                                'uma planilha de Código e Custo Unitário. '
+                                'A sugestão quantitativa funciona sem ela.'
+                            )
+                        elif rn['missing_cost_codes']:
+                            st.warning(
+                                f"Não é possível comparar custos: faltam custos válidos "
+                                f"para {len(rn['missing_cost_codes'])} SKU(s) "
+                                'dos cenários. Consulte a memória de cálculo.'
+                            )
+                    else:
+                        fin = rn['financial']
+                        st.markdown('#### Comparação financeira')
+                        f1, f2, f3, f4 = st.columns(4)
+                        f1.metric('Compra normal (sem desconto)',
+                                  f"R$ {fin['Compra normal sem desconto (R$)']:,.2f}")
+                        f2.metric('Proposta antes do desconto',
+                                  f"R$ {fin['Proposta antes do desconto (R$)']:,.2f}")
+                        f3.metric('Desconto condicionado à meta',
+                                  f"R$ {fin['Desconto condicional (R$)']:,.2f}")
+                        f4.metric('Proposta após o desconto',
+                                  f"R$ {fin['Proposta após desconto (R$)']:,.2f}")
+                        st.caption(
+                            'Diferença de desembolso frente à compra normal: '
+                            f"R$ {fin['Diferença de desembolso (R$)']:,.2f}. "
+                            'Diferença positiva representa mais dinheiro empregado. '
+                            'Não considera custos financeiros, armazenamento, '
+                            'impostos, sazonalidade nem prazo de pagamento.'
+                        )
+                    st.caption(
+                        'Coberturas consolidadas estimadas: estoques das filiais '
+                        'consideradas + estoque M20 + pendências confirmadas − '
+                        'consumo médio durante o lead time. Pressupõem disponibilidade '
+                        'do saldo da M20 para essas filiais; não garantem a cobertura '
+                        'de cada loja. Produtos sem venda/ABC e saldos inconsistentes '
+                        'ficam fora da distribuição. '
+                        'Se houver risco de faltar antes do recebimento, '
+                        'o novo pedido não elimina esse risco.'
+                    )
+                    with st.expander(
+                        'Ver todos os SKUs, itens bloqueados e memória da negociação',
+                        expanded=False,
+                    ):
+                        st.dataframe(
+                            tabela_negociacao, use_container_width=True,
+                            hide_index=True,
+                        )
+                        if rn['missing_cost_codes']:
+                            st.caption(
+                                'Códigos sem custo unitário válido: '
+                                + ', '.join(rn['missing_cost_codes'][:30])
+                                + ('…' if len(rn['missing_cost_codes']) > 30 else '')
+                            )
+                    parametros_negociacao = pd.DataFrame({
+                        'Parâmetro': [
+                            'Meta do fornecedor (peças)', 'Desconto sobre pedido (%)',
+                            'Curva A normal (dias)', 'Curva B normal (dias)',
+                            'Curva C normal (dias)', 'Curva A extra (dias)',
+                            'Curva B extra (dias)', 'Curva C extra (dias)',
+                            'Lead time (dias)', 'Fonte ABC',
+                            'Pendências com chegada confirmada',
+                            'Status da condição comercial',
+                        ],
+                        'Valor': [
+                            meta_fornecedor, percentual_desconto,
+                            dias_abc['A'], dias_abc['B'], dias_abc['C'],
+                            dias_extras['A'], dias_extras['B'], dias_extras['C'],
+                            leadtime_dias,
+                            snapshot.get('source_label', 'Calculada no NEXO'),
+                            'Sim' if pendencia_antes_entrega and abater_pendencia and pend_up else 'Não',
+                            'Atingida' if rn['discount_achieved'] else 'Não atingida',
+                        ],
+                    })
+                    with st.expander('Exportar relatório de negociação', expanded=False):
+                        abas_negociacao = {
+                            'Sugestao Negociacao': compras_negociacao,
+                            'Memoria Negociacao': tabela_negociacao,
+                            'Parametros Negociacao': parametros_negociacao,
+                        }
+                        if rn['financial'] is not None:
+                            abas_negociacao['Resumo Financeiro'] = pd.DataFrame(
+                                [rn['financial']]
+                            )
+                        st.download_button(
+                            'Baixar simulação de desconto (.xlsx)',
+                            data=xlsx_bytes(abas_negociacao),
+                            file_name='NEXO_simulacao_negociacao_desconto.xlsx',
+                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                            key='plan_desconto_exportar',
+                            use_container_width=True,
+                        )
 
 
 c1,c2,c3,c4 = st.columns(4)
