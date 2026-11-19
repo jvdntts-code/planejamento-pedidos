@@ -1015,6 +1015,53 @@ if simular_abc:
             'Vendas Produtos, confira a marca e a curva e depois volte '
             'ao Planejamento de Pedido. Nenhuma curva será estimada sem dados.'
         )
+    elif not snapshot.get('reliable_prices', False):
+        if snapshot.get('no_revenue', False):
+            st.error(
+                'A Análise de Linha não registrou faturamento válido no período. '
+                'Sem vendas e preços de venda verificáveis, a Curva ABC por '
+                'faturamento não pode ser aplicada à simulação.'
+            )
+        else:
+            problem_count = int(snapshot.get('unreliable_prices', 0))
+            st.warning(
+                f'A simulação depende de uma Curva ABC por faturamento confiável. '
+                f'Foram identificados **{problem_count} produto(s) com vendas** '
+                'sem preço de venda válido ou utilizando custo provisório. '
+                'Esses preços podem alterar a classificação de todos os produtos.'
+            )
+            issues = snapshot.get('price_issues', [])
+            if issues:
+                with st.expander(
+                    f'Ver os {len(issues)} produto(s) com problema de preço',
+                    expanded=True,
+                ):
+                    st.dataframe(
+                        pd.DataFrame(issues),
+                        hide_index=True,
+                        use_container_width=True,
+                    )
+                    st.caption(
+                        'Revise os códigos e os preços no relatório Vendas Produtos. '
+                        'Reimporte-o na Análise de Linha. '
+                        'Produtos sem vendas não são bloqueados apenas por falta '
+                        'de preço, pois não alteram o faturamento do período.'
+                    )
+            else:
+                st.caption(
+                    'Para obter o detalhamento dos preços, volte à Análise de Linha '
+                    'e deixe o NEXO recalcular a Curva ABC com os relatórios carregados.'
+                )
+        st.button(
+            'Conferir preços na Análise de Linha',
+            on_click=_abrir_modulo,
+            args=('Análise de Linha',),
+            key='plan_abc_corrigir_precos',
+        )
+        st.caption(
+            'O pedido pelo método tradicional permanece disponível abaixo. '
+            'Nenhuma classe A/B/C será presumida na simulação.'
+        )
     else:
         from coverage_planning import build_coverage_plan
         try:
