@@ -594,10 +594,36 @@ with st.sidebar:
             value=False,
             key='plan_abc_ativar',
             help=(
-                'Cria uma simulação separada usando a curva calculada na Análise de Linha. '
+                'Cria uma simulação separada usando a curva importada do sistema '
                 'Não modifica o pedido do método atual.'
             ),
         )
+        origem_abc = st.radio(
+            'Fonte da Curva ABC',
+            ['Arquivo do sistema', 'Calculada na Análise de Linha'],
+            key='plan_abc_origem',
+            help=(
+                'Arquivo do sistema utiliza a Curva ABC presente na planilha, '
+                'sem recalcular por preço. A outra opção usa o faturamento '
+                'calculado na Análise de Linha.'
+            ),
+        )
+        arquivo_abc = None
+        if origem_abc == 'Arquivo do sistema':
+            arquivo_abc = st.file_uploader(
+                'Importar Curva ABC por produto',
+                type=['xlsx', 'xls', 'csv'],
+                key='plan_abc_relatorio_curva',
+                help=(
+                    'O relatório deve conter Código, Marca e Curva ABC. '
+                    'Pode ser o Vendas Produtos com as colunas originais.'
+                ),
+            )
+            st.caption(
+                'A importação considera o código interno e a marca. '
+                'Referências são usadas para conferência; preços zerados '
+                'não impedem usar a curva já definida pelo sistema.'
+            )
         dias_abc = {
             'A': st.number_input(
                 'Curva A — dias de cobertura',
@@ -628,8 +654,8 @@ with st.sidebar:
         )
         st.caption(
             'As metas são medidas a partir da chegada estimada da mercadoria. '
-            'O lead time geral acima também será considerado. '
-            'A classificação ABC vem da Análise de Linha e não é presumida.'
+            'O lead time geral também é considerado. A curva utilizada será '
+            'a do relatório selecionado, sem classificar produtos sem correspondência.'
         )
 
     with st.expander('Validação dos mínimos'):
@@ -1007,14 +1033,50 @@ if simular_abc:
         f"Curva B {dias_abc['B']} dias · Curva C {dias_abc['C']} dias. "
         "Esta análise é independente do cálculo tradicional abaixo."
     )
-    snapshot = st.session_state.get('nexo_abc_snapshot')
+    if origem_abc == 'Arquivo do sistema':
+        snapshot = None
+        if arquivo_abc is not None:
+            from coverage_planning import import_abc_snapshot
+            try:
+                snapshot = import_abc_snapshot(read_file(arquivo_abc))
+            except ValueError as exc:
+                st.error(f'Arquivo de Curva ABC inválido: {exc}')
+        if snapshot is not None:
+            st.success(
+                f"Curva ABC importada: **{snapshot['brand']}**, "
+                f"{len(snapshot['curves'])} códigos classificados."
+            )
+            if snapshot['duplicates']:
+                st.warning(
+                    f"{len(snapshot['duplicates'])} código(s) repetido(s) no relatório "
+                    'com a mesma classificação. O NEXO usa cada código uma vez. '
+                    'Confira duplicidades no arquivo de origem.'
+                )
+            if snapshot['skipped_rows'] or snapshot['missing_curves']:
+                st.warning(
+                    f"{snapshot['skipped_rows']} registro(s) sem código/marca e "
+                    f"{snapshot['missing_curves']} sem classificação A/B/C "
+                    'não foram utilizados no cruzamento.'
+                )
+            st.caption(
+                'A classificação é a fornecida pelo sistema. O NEXO não a '
+                'recalcula nem confirma sua metodologia, mesmo quando o '
+                'relatório possui preços de venda zerados.'
+            )
+    else:
+        snapshot = st.session_state.get('nexo_abc_snapshot')
     if not snapshot:
-        st.warning(
-            'A Curva ABC por faturamento ainda não está disponível nesta sessão. '
-            'Acesse Análise de Linha, importe Lista de Produtos por Marca e '
-            'Vendas Produtos, confira a marca e a curva e depois volte '
-            'ao Planejamento de Pedido. Nenhuma curva será estimada sem dados.'
-        )
+        if origem_abc == 'Arquivo do sistema' and arquivo_abc is None:
+            st.info(
+                'Importe o Vendas Produtos que contenha as colunas '
+                'Código, Marca e Curva ABC no menu lateral para simular.'
+            )
+        elif origem_abc == 'Calculada na Análise de Linha':
+            st.warning(
+                'A Curva ABC calculada ainda não está disponível nesta sessão. '
+                'Importe os relatórios na Análise de Linha, confira a marca '
+                'e volte ao Planejamento.'
+            )
     else:
         from coverage_planning import build_coverage_plan
         try:
@@ -1026,10 +1088,16 @@ if simular_abc:
         except ValueError as exc:
             st.error(f'Não foi possível realizar a simulação ABC: {exc}')
         else:
+            origem_calculo = (
+                'classificação informada pelo sistema (sem recálculo por preço)'
+                if snapshot.get('source') == 'imported'
+                else f"Curva calculada no NEXO com faturamento de "
+                     f"{snapshot['period_days']} dias"
+            )
             st.caption(
-                f"Curva obtida da marca **{snapshot['brand']}** "
-                f"(faturamento dos últimos {snapshot['period_days']} dias na Análise de Linha). "
-                'Vendas por filial: histórico de 90 dias do Planejamento.'
+                f"Marca **{snapshot['brand']}** · {origem_calculo}. "
+                'O consumo usado nas compras é a venda de 90 dias por filial '
+                'do Planejamento de Pedido.'
             )
             elegiveis_abc = simulacao_abc['Situação'].isin([
                 'SIMULAÇÃO COM COMPRA', 'COBERTURA ATENDIDA',
@@ -1083,12 +1151,14 @@ if simular_abc:
                 'Parâmetro': [
                     'Curva A (dias)', 'Curva B (dias)', 'Curva C (dias)',
                     'Lead time geral (dias)', 'Curva obtida da marca',
-                    'Período da curva (dias)', 'Pendências consideradas',
-                    'Natureza'
+                    'Período da curva (dias)', 'Origem da Curva ABC',
+                    'Pendências consideradas', 'Natureza'
                 ],
                 'Valor': [
                     dias_abc['A'], dias_abc['B'], dias_abc['C'],
-                    leadtime_dias, snapshot['brand'], snapshot['period_days'],
+                    leadtime_dias, snapshot['brand'],
+                    snapshot.get('period_days') or 'Não informado',
+                    snapshot.get('source_label', 'Calculada na Análise de Linha'),
                     'Sim, confirmadas' if pendencia_antes_entrega and abater_pendencia and pend_up else 'Não',
                     'Simulação para revisão; não substitui o cálculo atual'
                 ],

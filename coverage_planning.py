@@ -59,6 +59,91 @@ def make_abc_snapshot(products, brand, period_days):
     }
 
 
+
+def import_abc_snapshot(report):
+    """Curva ABC fornecida pelo sistema: sem recalcular com preços de venda."""
+    import unicodedata
+
+    if report is None or report.empty:
+        raise ValueError("Arquivo da Curva ABC vazio.")
+
+    def norm_header(header):
+        txt = unicodedata.normalize("NFKD", str(header))
+        return "".join(c for c in txt.lower() if c.isalnum() and not unicodedata.combining(c))
+
+    names = {norm_header(col): col for col in report.columns}
+
+    def find(*options):
+        for option in options:
+            if norm_header(option) in names:
+                return names[norm_header(option)]
+        return None
+
+    code_col = find("Codigo", "Código", "Código Interno", "CodProduto")
+    brand_col = find("Marca")
+    curve_col = find("Curva ABC", "CurvaABC", "Curva")
+    ref_col = find("Numero Fabricante", "NumFabricante", "Referência", "Referencia")
+    missing = []
+    if code_col is None:
+        missing.append("Código")
+    if brand_col is None:
+        missing.append("Marca")
+    if curve_col is None:
+        missing.append("Curva ABC")
+    if missing:
+        raise ValueError("Colunas obrigatórias ausentes: " + ", ".join(missing))
+
+    curves = {}
+    code_brand = {}
+    duplicates = set()
+    skipped = 0
+    missing_curves = 0
+    brands = set()
+    reference_by_code = {}
+    for _, row in report.iterrows():
+        code = product_key(row[code_col])
+        brand = str(row[brand_col]).strip().upper() if pd.notna(row[brand_col]) else ""
+        curve = str(row[curve_col]).strip().upper() if pd.notna(row[curve_col]) else ""
+        if not code or not brand:
+            skipped += 1
+            continue
+        brands.add(brand)
+        if curve not in DEFAULT_DAYS:
+            missing_curves += 1
+            continue
+        if code in curves:
+            if curves[code] != curve or code_brand[code] != brand:
+                raise ValueError(
+                    f"O código {code} aparece com marca ou Curva ABC divergente. "
+                    "Corrija o relatório antes de importar."
+                )
+            duplicates.add(code)
+        curves[code] = curve
+        code_brand[code] = brand
+        if ref_col is not None and pd.notna(row[ref_col]):
+            reference_by_code[code] = str(row[ref_col]).strip()
+
+    if len(brands) > 1:
+        raise ValueError(
+            "O arquivo contém mais de uma marca (" + ", ".join(sorted(brands)[:5])
+            + "). Importe uma marca por vez para evitar misturar análises."
+        )
+    if not curves:
+        raise ValueError("Nenhum código com Curva ABC A, B ou C foi encontrado.")
+    return {
+        "source": "imported",
+        "source_label": "Curva ABC importada do sistema",
+        "brand": next(iter(brands)),
+        "period_days": None,
+        "curves": curves,
+        "references": reference_by_code,
+        "duplicates": sorted(duplicates),
+        "skipped_rows": skipped,
+        "missing_curves": missing_curves,
+        "total_file_rows": len(report),
+    }
+
+
 def build_coverage_plan(base, needs, snapshot, day_targets, leadtime_days,
                         pend_by_code=None, include_pending=False):
     """Projeta necessidade de cada filial separadamente e abate M20 uma vez.
@@ -71,7 +156,7 @@ def build_coverage_plan(base, needs, snapshot, day_targets, leadtime_days,
     """
     if not isinstance(snapshot, dict):
         raise ValueError("Importe primeiro os relatórios na Análise de Linha para calcular a Curva ABC.")
-    if not snapshot.get("reliable_prices"):
+    if snapshot.get("source") != "imported" and not snapshot.get("reliable_prices"):
         raise ValueError(
             "A Curva ABC não é confiável: existem preços ausentes ou custos usados "
             "provisoriamente como preço de venda na Análise de Linha."
