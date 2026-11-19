@@ -665,26 +665,11 @@ with st.sidebar:
                 key='plan_desconto_percentual',
             )
             st.caption(
-                'Peças normais primeiro (A → B → C); somente depois, '
-                'peças adicionais até os limites extraordinários.'
+                'O NEXO distribui primeiro a necessidade normal, respeitando a '
+                'Curva ABC. Depois utiliza as peças restantes para alcançar '
+                'a meta, sem limitar os dias de cobertura dos produtos. '
+                'A cobertura projetada ficará visível para sua avaliação.'
             )
-            dias_extras = {
-                'A': st.number_input(
-                    'Curva A — dias extras para negociação',
-                    min_value=0, max_value=365, value=30, step=5,
-                    key='plan_desconto_extra_a',
-                ),
-                'B': st.number_input(
-                    'Curva B — dias extras para negociação',
-                    min_value=0, max_value=365, value=15, step=5,
-                    key='plan_desconto_extra_b',
-                ),
-                'C': st.number_input(
-                    'Curva C — dias extras para negociação',
-                    min_value=0, max_value=365, value=0, step=5,
-                    key='plan_desconto_extra_c',
-                ),
-            }
             arquivo_custo_negociacao = st.file_uploader(
                 'Custos unitários de compra (opcional)',
                 type=['xlsx', 'xls', 'csv'],
@@ -696,9 +681,11 @@ with st.sidebar:
                 ),
             )
             st.caption(
-                'A meta é limite máximo e condição exata para obter o desconto. '
-                'Se o NEXO sugerir menos peças, o desconto não será aplicado. '
-                'Sem custo unitário confiável, somente quantidades e coberturas.'
+                'A meta é a quantidade desejada e o máximo permitido. '
+                'O sistema tentará completá-la com embalagens inteiras; '
+                'se não atingir a quantidade exata, não aplicará o desconto. '
+                'Não existe teto de cobertura na negociação, apenas alertas. '
+                'Sem custo confiável, somente quantidades e coberturas.'
             )
         pendencia_antes_entrega = st.checkbox(
             'Incluir pendências confirmadas para chegada até a reposição',
@@ -1244,16 +1231,8 @@ if simular_abc:
                 from discount_planning import (
                     load_unit_costs, simulate_discount_negotiation
                 )
-                metas_ampliadas = {
-                    curva: int(dias_abc[curva]) + int(dias_extras[curva])
-                    for curva in ('A', 'B', 'C')
-                }
                 valores_custo = None
                 try:
-                    if any(dias > 3650 for dias in metas_ampliadas.values()):
-                        raise ValueError(
-                            'Cobertura normal + extraordinária não pode superar 3.650 dias.'
-                        )
                     if arquivo_custo_negociacao is not None:
                         valores_custo, custos_invalidos = load_unit_costs(
                             read_file(arquivo_custo_negociacao)
@@ -1263,15 +1242,8 @@ if simular_abc:
                                 f'{len(custos_invalidos)} código(s) com custo zero ou inválido '
                                 'não poderão ter avaliação financeira até a correção.'
                             )
-                    plano_ampliado = build_coverage_plan(
-                        base, necessidades, snapshot, metas_ampliadas, leadtime_dias,
-                        pend_by_code=pend_map,
-                        include_pending=bool(
-                            pendencia_antes_entrega and abater_pendencia and pend_up
-                        ),
-                    )
                     resultado_negociacao = simulate_discount_negotiation(
-                        simulacao_abc, plano_ampliado,
+                        simulacao_abc,
                         limit_units=int(meta_fornecedor),
                         discount_pct=float(percentual_desconto),
                         unit_costs=valores_custo,
@@ -1295,7 +1267,7 @@ if simular_abc:
                         st.warning(
                             f"Meta NÃO atingida: faltam {rn['remaining_units']:,.0f} peças. "
                             "O desconto não foi aplicado ao cenário financeiro. "
-                            "A sugestão preserva as metas extraordinárias e embalagens.".replace(',', '.')
+                            "A distribuição respeita as embalagens e os produtos elegíveis.".replace(',', '.')
                         )
                     if not rn['normal_fully_covered']:
                         st.warning(
@@ -1320,10 +1292,10 @@ if simular_abc:
                         'Código', 'Referência', 'Descrição', 'Curva ABC',
                         'Necessidade normal (peças)', 'Peças extras para desconto',
                         'Compra proposta (peças)', 'Embalagem',
+                        'Consumo médio diário', 'Estoque projetado após compra (peças)',
                         'Cobertura atual (dias)', 'Cobertura na chegada (dias)',
                         'Cobertura compra normal (dias)', 'Cobertura proposta (dias)',
-                        'Dias acima da meta normal',
-                        'Dias acima do teto extraordinário', 'Resultado',
+                        'Dias acima da meta normal', 'Alerta de cobertura', 'Resultado',
                     ]
                     if compras_negociacao.empty:
                         st.info(
@@ -1335,20 +1307,13 @@ if simular_abc:
                             compras_negociacao[columns_offer],
                             use_container_width=True, hide_index=True,
                         )
-                    acima_extra = tabela_negociacao[
-                        pd.to_numeric(
-                            tabela_negociacao['Dias acima do teto extraordinário'],
-                            errors='coerce',
-                        ).fillna(0).gt(0.01)
-                        & pd.to_numeric(
-                            tabela_negociacao['Compra proposta (peças)'], errors='coerce'
-                        ).fillna(0).gt(0)
-                    ]
-                    if not acima_extra.empty:
+                    if rn['above_180_skus']:
                         st.warning(
-                            f"{len(acima_extra)} produto(s) ultrapassam o teto "
-                            'extraordinário devido a múltiplos de embalagem. '
-                            'Confira-os antes de aprovar a negociação.'
+                            f"{rn['above_180_skus']} produto(s) estão com mais de "
+                            f"180 dias de cobertura na proposta "
+                            f"({rn['above_365_skus']} acima de 365 dias). "
+                            'Isso não bloqueia a distribuição: confira o risco '
+                            'de estoque parado antes de aprovar a compra.'
                         )
                     if rn['financial'] is None:
                         if arquivo_custo_negociacao is None:
@@ -1410,8 +1375,7 @@ if simular_abc:
                         'Parâmetro': [
                             'Meta do fornecedor (peças)', 'Desconto sobre pedido (%)',
                             'Curva A normal (dias)', 'Curva B normal (dias)',
-                            'Curva C normal (dias)', 'Curva A extra (dias)',
-                            'Curva B extra (dias)', 'Curva C extra (dias)',
+                            'Curva C normal (dias)', 'Dias adicionais',
                             'Lead time (dias)', 'Fonte ABC',
                             'Pendências com chegada confirmada',
                             'Status da condição comercial',
@@ -1419,7 +1383,7 @@ if simular_abc:
                         'Valor': [
                             meta_fornecedor, percentual_desconto,
                             dias_abc['A'], dias_abc['B'], dias_abc['C'],
-                            dias_extras['A'], dias_extras['B'], dias_extras['C'],
+                            'Sem teto de cobertura: distribuição até a meta de peças',
                             leadtime_dias,
                             snapshot.get('source_label', 'Calculada no NEXO'),
                             'Sim' if pendencia_antes_entrega and abater_pendencia and pend_up else 'Não',
