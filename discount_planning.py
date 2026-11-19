@@ -120,7 +120,7 @@ def simulate_discount_negotiation(
         stock_stores = _number(row["Estoque filiais consideradas"])
         stock_m20 = _number(row["Estoque M20"])
         confirmed = _number(row["Pendência considerada"])
-        lead = _number(row["Lead time (dias"])
+        lead = _number(row["Lead time (dias)"])
         pack = _number(row["Embalagem"])
         baseline = _number(row["Quantidade simulada"])
         normal_days = _number(row["Meta (dias)"])
