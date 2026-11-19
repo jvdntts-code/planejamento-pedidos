@@ -2370,10 +2370,32 @@ def render_analise_linha():
                 "durante esta sessão."
             )
         else:
-            st.warning(
-                "A Curva ABC foi calculada com preços ausentes ou provisórios "
-                "e não será aceita na simulação de compras por cobertura."
-            )
+            if snapshot.get("no_revenue"):
+                st.warning(
+                    "Não há faturamento válido no período escolhido. "
+                    "A Curva ABC não pode ser usada para calcular compras por cobertura."
+                )
+            else:
+                st.warning(
+                    f"Há {snapshot['unreliable_prices']} produto(s) com vendas "
+                    "sem preço de venda válido ou com preço de custo provisório. "
+                    "A simulação por Curva ABC fica suspensa até a correção."
+                )
+                issues = snapshot.get("price_issues", [])
+                if issues:
+                    with st.expander(
+                        "Conferir códigos e preços que impedem a simulação",
+                        expanded=False,
+                    ):
+                        st.dataframe(
+                            pd.DataFrame(issues),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                        st.caption(
+                            "Atualize o arquivo Vendas Produtos e reimporte-o no menu lateral. "
+                            "O relatório principal precisa manter os códigos correspondentes."
+                        )
     revenue_col = "faturamento_analise"
 
     total_revenue = float(products["faturamento_periodo"].sum())
