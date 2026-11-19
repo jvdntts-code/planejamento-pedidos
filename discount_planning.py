@@ -131,8 +131,8 @@ def simulate_discount_negotiation(
         qty_base = _number(regular["Quantidade simulada"])
         qty_expanded = _number(extra["Quantidade simulada"])
         emb = _number(regular["Embalagem"])
-        normal_days = _number(regular["Meta (dias"])
-        expanded_days = _number(extra["Meta (dias"])
+        normal_days = _number(regular["Meta (dias)"])
+        expanded_days = _number(extra["Meta (dias)"])
         original_need = _number(regular["Saldo a comprar antes da embalagem"])
         extended_need = _number(extra["Saldo a comprar antes da embalagem"])
         is_valid = (
