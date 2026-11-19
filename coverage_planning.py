@@ -23,39 +23,91 @@ def brand_key(value):
 
 
 def make_abc_snapshot(products, brand, period_days):
-    """Preserva a curva calculada por receita na Análise de Linha."""
-    required = {"codigo", "curva_abc", "preco_venda", "vendas_periodo", "preco_venda_origem"}
+    """Classificação ABC por receita, com diagnóstico de preços por produto.
+
+    Preço ausente em item *sem vendas* não altera o ranking por faturamento.
+    Preço ausente/provisório em item *com vendas* impede usar toda a curva,
+    já que pode alterar os limites e a classe dos demais produtos.
+    """
+    required = {
+        "codigo", "curva_abc", "preco_venda",
+        "vendas_periodo", "preco_venda_origem",
+    }
     missing = required - set(products.columns)
     if missing:
         raise ValueError("A análise não possui: " + ", ".join(sorted(missing)))
+    if not brand_key(brand):
+        raise ValueError("A marca da Análise de Linha não foi identificada.")
+    if period_days <= 0:
+        raise ValueError("Período da curva ABC inválido.")
+
     prices = pd.to_numeric(products["preco_venda"], errors="coerce")
     sales = pd.to_numeric(products["vendas_periodo"], errors="coerce").fillna(0)
     origins = products["preco_venda_origem"].fillna("").astype(str)
-    unreliable = (
-        (sales.gt(0) & (prices.isna() | prices.le(0)))
-        | origins.str.contains("custo usado provisoriamente", case=False, regex=False)
-        | (sales.gt(0) & origins.str.contains("sem preço", case=False, regex=False))
+    sold = sales.gt(0)
+    placeholder_cost = origins.str.contains(
+        "custo usado provisoriamente", case=False, regex=False
     )
+    no_price_source = origins.str.contains(
+        "sem preço", case=False, regex=False
+    )
+    missing_price = prices.isna() | prices.le(0)
+    invalid = sold & (missing_price | placeholder_cost | no_price_source)
+
+    codes = products["codigo"].map(product_key)
     mapping = {}
-    for code, curve in zip(products["codigo"], products["curva_abc"]):
-        key = product_key(code)
+    for code, curve in zip(codes, products["curva_abc"]):
         curve = str(curve).strip().upper()
-        if not key or curve not in DEFAULT_DAYS:
+        if not code or curve not in DEFAULT_DAYS:
             continue
-        if key in mapping and mapping[key] != curve:
+        if code in mapping and mapping[code] != curve:
             raise ValueError(
-                f"Código {key} consta em mais de uma Curva ABC. "
+                f"Código {code} consta em mais de uma Curva ABC. "
                 "Corrija duplicidades antes de simular."
             )
-        mapping[key] = curve
-    if not brand_key(brand):
-        raise ValueError("A marca da Análise de Linha não foi identificada.")
+        mapping[code] = curve
+
+    issues = []
+    descriptions = (
+        products["descricao"].fillna("").astype(str)
+        if "descricao" in products.columns
+        else pd.Series("", index=products.index)
+    )
+    for idx in products.index[invalid]:
+        reasons = []
+        if bool(missing_price.loc[idx]):
+            reasons.append("Preço de venda ausente ou não positivo")
+        if bool(placeholder_cost.loc[idx]):
+            reasons.append("Custo usado como preço de venda")
+        if bool(no_price_source.loc[idx]):
+            reasons.append("Sem origem de preço de venda")
+        issues.append({
+            "Código": codes.loc[idx],
+            "Descrição": descriptions.loc[idx],
+            "Vendas do período": float(sales.loc[idx]),
+            "Preço encontrado": (
+                float(prices.loc[idx]) if pd.notna(prices.loc[idx]) else None
+            ),
+            "Origem do preço": origins.loc[idx],
+            "Problema": "; ".join(reasons),
+        })
+
+    selling_count = int(sold.sum())
+    revenue_known = float((sales.clip(lower=0) * prices.fillna(0)).sum())
+    empty_sales = selling_count == 0 or revenue_known <= 0
+    reliable = not issues and not empty_sales
     return {
         "brand": str(brand).strip(),
         "period_days": int(period_days),
         "curves": mapping,
-        "reliable_prices": not bool(unreliable.any()),
-        "unreliable_prices": int(unreliable.sum()),
+        "reliable_prices": reliable,
+        "unreliable_prices": len(issues),
+        "selling_items": selling_count,
+        "price_issues": issues,
+        "no_revenue": empty_sales,
+        "zero_sale_provisional_ignored": int(
+            ((~sold) & placeholder_cost).sum()
+        ),
     }
 
 
@@ -72,9 +124,16 @@ def build_coverage_plan(base, needs, snapshot, day_targets, leadtime_days,
     if not isinstance(snapshot, dict):
         raise ValueError("Importe primeiro os relatórios na Análise de Linha para calcular a Curva ABC.")
     if not snapshot.get("reliable_prices"):
+        if snapshot.get("no_revenue"):
+            raise ValueError(
+                "A Análise de Linha não possui faturamento válido no período, "
+                "portanto não é possível classificar os produtos por Curva ABC."
+            )
         raise ValueError(
-            "A Curva ABC não é confiável: existem preços ausentes ou custos usados "
-            "provisoriamente como preço de venda na Análise de Linha."
+            "A Curva ABC não pode ser aplicada: "
+            f"{int(snapshot.get('unreliable_prices', 0))} produto(s) com vendas "
+            "têm preços ausentes ou provisórios. "
+            "Confira o diagnóstico na Análise de Linha."
         )
     if leadtime_days < 0:
         raise ValueError("O lead time não pode ser negativo.")
