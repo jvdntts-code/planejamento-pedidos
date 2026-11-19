@@ -138,7 +138,38 @@ class CoverageByCurveTests(unittest.TestCase):
         bad.loc[0, "preco_venda_origem"] = "Preço de custo usado provisoriamente"
         snapshot = make_abc_snapshot(bad, "VOX", 90)
         self.assertFalse(snapshot["reliable_prices"])
-        with self.assertRaisesRegex(ValueError, "não é confiável"):
+        with self.assertRaisesRegex(ValueError, "não pode ser aplicada"):
+            build_coverage_plan(
+                report(), branches(), snapshot, {"A": 90, "B": 60, "C": 30}, 0
+            )
+
+    def test_zero_price_with_sales_is_reported(self):
+        bad = source_products()
+        bad.loc[0, "preco_venda"] = 0
+        snapshot = make_abc_snapshot(bad, "VOX", 90)
+        self.assertFalse(snapshot["reliable_prices"])
+        self.assertEqual(snapshot["unreliable_prices"], 1)
+        self.assertEqual(snapshot["price_issues"][0]["Código"], "101")
+        self.assertIn("Preço de venda ausente", snapshot["price_issues"][0]["Problema"])
+
+    def test_zero_price_without_sales_does_not_block_other_items(self):
+        sample = source_products()
+        sample.loc[1, "vendas_periodo"] = 0
+        sample.loc[1, "preco_venda"] = 0
+        sample.loc[1, "preco_venda_origem"] = "Preço de custo usado provisoriamente"
+        snapshot = make_abc_snapshot(sample, "VOX", 90)
+        self.assertTrue(snapshot["reliable_prices"])
+        self.assertEqual(snapshot["unreliable_prices"], 0)
+        self.assertEqual(snapshot["zero_sale_provisional_ignored"], 1)
+        self.assertEqual(snapshot["price_issues"], [])
+
+    def test_without_revenue_blocks_abc(self):
+        sample = source_products()
+        sample["vendas_periodo"] = 0
+        snapshot = make_abc_snapshot(sample, "VOX", 90)
+        self.assertFalse(snapshot["reliable_prices"])
+        self.assertTrue(snapshot["no_revenue"])
+        with self.assertRaisesRegex(ValueError, "não possui faturamento válido"):
             build_coverage_plan(
                 report(), branches(), snapshot, {"A": 90, "B": 60, "C": 30}, 0
             )
