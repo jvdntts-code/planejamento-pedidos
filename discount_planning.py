@@ -1,12 +1,8 @@
-"""Simulação auditável de negociação de compras por meta de peças.
+"""Negociação por meta em peças: sem teto artificial de cobertura.
 
-Duas etapas:
-1. Distribuição da necessidade normal por ABC A -> B -> C;
-2. Só depois de atendida toda a necessidade normal, distribuição opcional
-   até a cobertura extraordinária, novamente por A -> B -> C.
-
-A meta é limite máximo E gatilho exato para o desconto. Não é obrigação
-de comprar, e o arredondamento nunca pode ultrapassar o limite de peças.
+Primeiro atende necessidades normais por Curva ABC. Depois distribui
+quantidades adicionais por A -> B -> C até tentar atingir a meta do
+fornecedor. Dias de cobertura são resultados informativos da simulação.
 """
 import math
 import re
@@ -88,18 +84,21 @@ def load_unit_costs(report):
 
 
 def simulate_discount_negotiation(
-    normal, expanded, limit_units=34500, discount_pct=5.0, unit_costs=None
+    normal, limit_units=34500, discount_pct=5.0, unit_costs=None
 ):
-    """Retorna os dois cenários e a distribuição do limite, sem tomar decisão.
+    """Distribui uma META em peças sem teto de dias de cobertura.
 
-    Os planos normal/expandido são produzidos por build_coverage_plan com as
-    mesmas filiais, estoque, lead time e pendências; só variam dias-alvo.
+    Primeiro atende às necessidades normais na ordem A/B/C. Se a meta
+    permitir, reparte as unidades excedentes entre SKUs com vendas,
+    equilibrando a cobertura relativa à meta *dentro da mesma curva*.
+    Não limita a cobertura máxima: ela é resultado da simulação.
+    Compra somente embalagens inteiras e nunca passa da meta informada.
     """
-    if not isinstance(limit_units, int) or limit_units <= 0:
-        raise ValueError("Meta de peças precisa ser um inteiro positivo.")
+    if not isinstance(limit_units, int) or isinstance(limit_units, bool) or limit_units <= 0:
+        raise ValueError("A meta precisa ser um número inteiro positivo de peças.")
     if not 0 <= discount_pct < 100:
-        raise ValueError("Desconto deve estar entre 0 e menos de 100%.")
-    fields = {
+        raise ValueError("O desconto deve estar entre 0 e menos de 100%.")
+    required = {
         "Código", "Referência", "Descrição", "Marca", "Curva ABC",
         "Meta (dias)", "Vendas 90d filiais",
         "Estoque filiais consideradas", "Estoque M20",
@@ -107,231 +106,292 @@ def simulate_discount_negotiation(
         "Embalagem", "Quantidade simulada", "Situação",
         "Saldo a comprar antes da embalagem",
     }
-    if (fields - set(normal.columns)) or (fields - set(expanded.columns)):
-        raise ValueError("Planos de cobertura incompletos para comparar a negociação.")
-    if len(normal) != len(expanded):
-        raise ValueError("Os dois cenários devem conter os mesmos produtos.")
-    code_normal = normal["Código"].map(product_key).tolist()
-    code_expanded = expanded["Código"].map(product_key).tolist()
-    if code_normal != code_expanded:
-        raise ValueError("Os dois cenários não possuem os mesmos códigos na mesma ordem.")
+    missing = required - set(normal.columns)
+    if missing:
+        raise ValueError("Colunas ausentes no cenário normal: " + ", ".join(sorted(missing)))
 
-    repeated = {
-        code for code in code_normal if code and code_normal.count(code) > 1
-    }
+    codes = normal["Código"].map(product_key).tolist()
+    duplicates = {code for code in codes if code and codes.count(code) > 1}
     records = []
-    for (_, regular), (_, extra) in zip(normal.iterrows(), expanded.iterrows()):
-        code = product_key(regular["Código"])
-        curve = str(regular["Curva ABC"]).strip().upper()
-        stock_stores = _number(regular["Estoque filiais consideradas"], 0)
-        stock_m20 = _number(regular["Estoque M20"], 0)
-        pend = _number(regular["Pendência considerada"], 0)
-        sales90 = _number(regular["Vendas 90d filiais"], 0)
-        lead = _number(regular["Lead time (dias)"], 0)
-        qty_base = _number(regular["Quantidade simulada"])
-        qty_expanded = _number(extra["Quantidade simulada"])
-        emb = _number(regular["Embalagem"])
-        normal_days = _number(regular["Meta (dias)"])
-        expanded_days = _number(extra["Meta (dias)"])
-        original_need = _number(regular["Saldo a comprar antes da embalagem"])
-        extended_need = _number(extra["Saldo a comprar antes da embalagem"])
-        is_valid = (
-            code not in repeated
+    for _, row in normal.iterrows():
+        code = product_key(row["Código"])
+        curve = str(row["Curva ABC"]).strip().upper()
+        daily_sales90 = _number(row["Vendas 90d filiais"])
+        stock_stores = _number(row["Estoque filiais consideradas"])
+        stock_m20 = _number(row["Estoque M20"])
+        confirmed = _number(row["Pendência considerada"])
+        lead = _number(row["Lead time (dias"])
+        pack = _number(row["Embalagem"])
+        baseline = _number(row["Quantidade simulada"])
+        normal_days = _number(row["Meta (dias)"])
+        raw_need = _number(row["Saldo a comprar antes da embalagem"])
+        normal_status = str(row["Situação"])
+
+        valid = (
+            bool(code) and code not in duplicates
             and curve in CURVE_ORDER
-            and str(regular["Situação"]) in (
-                "SIMULAÇÃO COM COMPRA", "COBERTURA ATENDIDA"
+            and normal_status in ("SIMULAÇÃO COM COMPRA", "COBERTURA ATENDIDA")
+            and all(
+                v is not None and v >= 0
+                for v in (daily_sales90, stock_stores, stock_m20, confirmed,
+                          lead, baseline, raw_need, normal_days)
             )
-            and str(extra["Situação"]) in (
-                "SIMULAÇÃO COM COMPRA", "COBERTURA ATENDIDA"
-            )
-            and all(x is not None and x >= 0 for x in (
-                stock_stores, stock_m20, pend, sales90, lead,
-                qty_base, qty_expanded, normal_days, expanded_days,
-                original_need, extended_need,
-            ))
-            and sales90 > 0
-            and emb is not None and emb >= 1
-            and emb.is_integer()
-            and expanded_days >= normal_days
-            and qty_expanded >= qty_base
-            and math.isclose(
-                _number(extra["Embalagem"], -1), emb, rel_tol=0, abs_tol=1e-8
-            )
+            and daily_sales90 > 0
+            and pack is not None and pack >= 1 and pack.is_integer()
+            and baseline is not None and baseline.is_integer()
+            and int(baseline) % int(pack) == 0
+            and normal_days is not None and normal_days > 0
         )
-        daily = sales90 / 90.0 if sales90 > 0 else 0.0
-        raw_stock = stock_stores + stock_m20
-        arrival_raw = raw_stock + pend - daily * lead
-        arrival = max(0.0, arrival_raw)
+        daily = daily_sales90 / 90.0 if daily_sales90 and daily_sales90 > 0 else 0.0
+        present = (
+            stock_stores + stock_m20
+            if stock_stores is not None and stock_m20 is not None
+            else None
+        )
+        predicted_raw = (
+            present + confirmed - daily * lead
+            if present is not None and confirmed is not None and lead is not None
+            else None
+        )
+        arrival = max(0.0, predicted_raw) if predicted_raw is not None else None
+        if not valid:
+            reason = (
+                "Código repetido" if code in duplicates else
+                normal_status if normal_status not in (
+                    "SIMULAÇÃO COM COMPRA", "COBERTURA ATENDIDA"
+                ) else
+                "Dados/embalagem inconsistentes"
+            )
+        else:
+            reason = "Apto à distribuição"
+
         records.append({
-            "Código": regular["Código"],
-            "Referência": regular["Referência"],
-            "Descrição": regular["Descrição"],
-            "Marca": regular["Marca"],
+            "Código": row["Código"],
+            "Referência": row["Referência"],
+            "Descrição": row["Descrição"],
+            "Marca": row["Marca"],
             "Curva ABC": curve if curve in CURVE_ORDER else "Não identificada",
-            "Consumo diário": daily,
-            "Meta normal (dias)": normal_days,
-            "Teto negociação (dias)": expanded_days,
+            "Consumo médio diário": daily,
+            "Vendas 90d filiais": daily_sales90,
             "Estoque filiais": stock_stores,
             "Estoque M20": stock_m20,
-            "Pendência confirmada": pend,
+            "Pendência confirmada": confirmed,
             "Lead time (dias)": lead,
-            "Embalagem": int(emb) if emb and emb > 0 and emb.is_integer() else None,
-            "Necessidade sem arredondamento": original_need,
-            "Necessidade normal (peças)": int(qty_base) if is_valid else None,
-            "Limite extraordinário (peças)": int(qty_expanded) if is_valid else None,
-            "Cobertura atual (dias)": raw_stock / daily if daily else None,
-            "Cobertura na chegada (dias)": arrival / daily if daily else None,
+            "Embalagem": int(pack) if pack is not None and pack >= 1 and pack.is_integer() else None,
+            "Meta normal (dias)": normal_days,
+            "Necessidade sem arredondamento": raw_need,
+            "Necessidade normal (peças)": int(baseline) if valid else None,
+            "Cobertura atual (dias)": present / daily if present is not None and daily > 0 else None,
+            "Cobertura na chegada (dias)": arrival / daily if arrival is not None and daily > 0 else None,
             "Cobertura compra normal (dias)": (
-                (arrival + qty_base) / daily if is_valid else None
+                (arrival + baseline) / daily if valid else None
             ),
-            "Risco de falta antes da chegada": bool(
-                daily > 0 and arrival_raw < 0
+            "Risco de falta antes da chegada": (
+                bool(predicted_raw < 0) if predicted_raw is not None and daily > 0 else None
             ),
-            "_arrival": arrival,
-            "_excess_raw": extended_need,
-            "_eligible": bool(is_valid),
-            "_regular": int(qty_base) if is_valid else 0,
-            "_maximum": int(qty_expanded) if is_valid else 0,
-            "_allocated_normal": 0,
-            "_allocated_extra": 0,
-            "Motivo": (
-                "Apto à simulação" if is_valid
-                else (
-                    "Código duplicado no planejamento" if code in repeated
-                    else str(regular["Situação"])
-                    if str(regular["Situação"]) not in (
-                        "SIMULAÇÃO COM COMPRA", "COBERTURA ATENDIDA"
-                    )
-                    else "Conferir dados e embalagem do produto"
-                )
-            ),
+            "_eligible": bool(valid),
+            "_arrival": arrival if arrival is not None else 0.0,
+            "_normal": int(baseline) if valid else 0,
+            "_distributed_normal": 0,
+            "_distributed_extra": 0,
+            "Motivo": reason,
         })
 
     priority = sorted(
-        (i for i, record in enumerate(records) if record["_eligible"]),
+        [i for i, rec in enumerate(records) if rec["_eligible"]],
         key=lambda i: (
             CURVE_ORDER[records[i]["Curva ABC"]],
             records[i]["Cobertura na chegada (dias)"],
-            -records[i]["Consumo diário"],
+            -records[i]["Consumo médio diário"],
             product_key(records[i]["Código"]),
         ),
     )
     used = 0
-    # Etapa 1: atender a compra NORMAL, antes de qualquer extra.
-    for index in priority:
-        record = records[index]
-        emb = record["Embalagem"]
-        room = (limit_units - used) // emb
-        requested = record["_regular"] // emb
-        allocation = min(room, requested) * emb
-        record["_allocated_normal"] = allocation
-        used += allocation
+    for idx in priority:
+        rec = records[idx]
+        package = rec["Embalagem"]
+        units = min(
+            rec["_normal"] // package,
+            (limit_units - used) // package
+        ) * package
+        rec["_distributed_normal"] = units
+        used += units
 
-    required_total = sum(record["_regular"] for record in records)
-    normal_fully_covered = (
-        sum(record["_allocated_normal"] for record in records) == required_total
-    )
+    normal_required = sum(rec["_normal"] for rec in records)
+    normal_fully_covered = used == normal_required
+    # Quando não houver espaço para atender a compra normal inteira, não
+    # "engordar" itens enquanto outras necessidades permanecem descobertas.
+    if normal_fully_covered and priority and used < limit_units:
+        import heapq
 
-    # Etapa 2: só permitir extra se toda necessidade NORMAL foi atendida.
-    if normal_fully_covered:
-        for index in priority:
-            record = records[index]
-            emb = record["Embalagem"]
-            room = (limit_units - used) // emb
-            allowance = (record["_maximum"] -
-                         record["_allocated_normal"]) // emb
-            allocation = min(room, max(0, allowance)) * emb
-            record["_allocated_extra"] = allocation
-            used += allocation
+        remainder = limit_units - used
+        packages = sorted({records[i]["Embalagem"] for i in priority
+                           if records[i]["Embalagem"] <= remainder})
+        # A tabela de alcançabilidade procura uma combinação de embalagens que
+        # atinja exatamente a meta, sem sobrecomprar uma unidade sequer.
+        reachable = None
+        if 0 < remainder <= 120000 and packages:
+            reachable = bytearray(remainder + 1)
+            reachable[0] = 1
+            for package in packages:
+                for units in range(package, remainder + 1):
+                    if reachable[units - package]:
+                        reachable[units] = 1
 
-    for record in records:
-        total = record["_allocated_normal"] + record["_allocated_extra"]
-        daily = record["Consumo diário"]
-        after = (
-            (record["_arrival"] + total) / daily
-            if record["_eligible"] and daily > 0 else None
-        )
-        record["Compra proposta (peças)"] = (
-            total if record["_eligible"] else None
-        )
-        record["Peças extras para desconto"] = record["_allocated_extra"]
-        record["Cobertura proposta (dias)"] = after
-        record["Dias acima da meta normal"] = (
-            max(0.0, after - record["Meta normal (dias)"])
-            if after is not None else None
-        )
-        record["Dias acima do teto extraordinário"] = (
-            max(0.0, after - record["Teto negociação (dias)"])
-            if after is not None else None
-        )
-        record["Excesso por embalagem (peças)"] = (
-            max(0.0, total - record["_excess_raw"])
-            if record["_eligible"] else None
-        )
-        if record["_eligible"]:
-            if total == 0:
-                record["Resultado"] = (
-                    "Cobertura normal atendida" if record["_regular"] == 0
-                    else "Sem espaço na meta / embalagem"
-                )
-            elif record["_allocated_normal"] < record["_regular"]:
-                record["Resultado"] = "Compra normal parcialmente atendida"
-            elif record["_allocated_extra"] > 0:
-                record["Resultado"] = "Compra normal + extra para desconto"
-            else:
-                record["Resultado"] = "Compra normal atendida"
+        for curve in ("A", "B", "C"):
+            indices = [i for i in priority if records[i]["Curva ABC"] == curve]
+            if not indices or remainder <= 0:
+                continue
+            heap = []
+            for idx in indices:
+                rec = records[idx]
+                projected_days = (
+                    rec["_arrival"] + rec["_distributed_normal"]
+                ) / rec["Consumo médio diário"]
+                ratio = projected_days / rec["Meta normal (dias)"]
+                heapq.heappush(heap, (
+                    ratio, -rec["Consumo médio diário"],
+                    product_key(rec["Código"]), idx,
+                ))
+
+            while heap and remainder > 0:
+                deferred = []
+                chosen = None
+                while heap:
+                    candidate = heapq.heappop(heap)
+                    idx = candidate[3]
+                    package = records[idx]["Embalagem"]
+                    fits = package <= remainder
+                    preserves_exact = (
+                        reachable is None
+                        or not reachable[remainder]
+                        or (fits and reachable[remainder - package])
+                    )
+                    if fits and preserves_exact:
+                        chosen = idx
+                        break
+                    deferred.append(candidate)
+                for entry in deferred:
+                    heapq.heappush(heap, entry)
+                if chosen is None:
+                    break
+
+                rec = records[chosen]
+                package = rec["Embalagem"]
+                rec["_distributed_extra"] += package
+                used += package
+                remainder -= package
+                new_days = (
+                    rec["_arrival"]
+                    + rec["_distributed_normal"]
+                    + rec["_distributed_extra"]
+                ) / rec["Consumo médio diário"]
+                heapq.heappush(heap, (
+                    new_days / rec["Meta normal (dias)"],
+                    -rec["Consumo médio diário"],
+                    product_key(rec["Código"]), chosen,
+                ))
+
+    for rec in records:
+        if rec["_eligible"]:
+            added = rec["_distributed_normal"] + rec["_distributed_extra"]
+            projected_days = (
+                rec["_arrival"] + added
+            ) / rec["Consumo médio diário"]
+            rec["Compra proposta (peças)"] = added
+            rec["Peças extras para desconto"] = rec["_distributed_extra"]
+            rec["Estoque projetado após compra (peças)"] = rec["_arrival"] + added
+            rec["Cobertura proposta (dias)"] = projected_days
+            rec["Dias acima da meta normal"] = max(
+                0.0, projected_days - rec["Meta normal (dias)"]
+            )
+            rec["Excesso de embalagem na compra normal (peças)"] = max(
+                0.0, rec["_normal"] - rec["Necessidade sem arredondamento"]
+            )
+            rec["Alerta de cobertura"] = (
+                "Acima de 365 dias — avaliar giro e capital"
+                if projected_days > 365 else
+                "Acima de 180 dias — avaliar giro"
+                if projected_days > 180 else
+                "Dentro de 180 dias"
+            )
+            rec["Resultado"] = (
+                "Normal + peças adicionais para meta"
+                if rec["_distributed_extra"] > 0 else
+                "Compra normal parcialmente atendida"
+                if rec["_distributed_normal"] < rec["_normal"] else
+                "Compra normal atendida"
+                if added > 0 else
+                "Nenhuma compra necessária"
+            )
         else:
-            record["Resultado"] = "Fora da distribuição — conferir"
+            rec["Compra proposta (peças)"] = None
+            rec["Peças extras para desconto"] = 0
+            rec["Estoque projetado após compra (peças)"] = None
+            rec["Cobertura proposta (dias)"] = None
+            rec["Dias acima da meta normal"] = None
+            rec["Excesso de embalagem na compra normal (peças)"] = None
+            rec["Alerta de cobertura"] = "Conferir dados"
+            rec["Resultado"] = "Fora da distribuição — conferir"
 
-    for record in records:
-        for key in list(record):
+        for key in list(rec):
             if key.startswith("_"):
-                del record[key]
+                del rec[key]
+
     table = pd.DataFrame(records)
     achieved = used == limit_units
     costs = unit_costs or {}
-    cost_required = set()
-    for _, row in table.iterrows():
+    cost_required = {
+        product_key(row["Código"])
+        for _, row in table.iterrows()
         if (_number(row["Necessidade normal (peças)"], 0) > 0
-                or _number(row["Compra proposta (peças)"], 0) > 0):
-            cost_required.add(product_key(row["Código"]))
-    missing_costs = sorted({
+            or _number(row["Compra proposta (peças)"], 0) > 0)
+    }
+    missing_costs = sorted(
         code for code in cost_required
-        if _number(costs.get(code)) is None or
-           _number(costs.get(code)) <= 0
-    })
+        if _number(costs.get(code)) is None or _number(costs.get(code)) <= 0
+    )
     financial = None
     if cost_required and not missing_costs:
-        regular_value = 0.0
-        proposed_value = 0.0
+        normal_value = 0.0
+        offered_value = 0.0
         for _, row in table.iterrows():
             cost = _number(costs.get(product_key(row["Código"])), 0)
-            regular_value += _number(row["Necessidade normal (peças)"], 0) * cost
-            proposed_value += _number(row["Compra proposta (peças)"], 0) * cost
-        reduction = proposed_value * (discount_pct / 100.0) if achieved else 0.0
+            normal_value += _number(row["Necessidade normal (peças)"], 0) * cost
+            offered_value += _number(row["Compra proposta (peças)"], 0) * cost
+        saved = offered_value * (discount_pct / 100) if achieved else 0.0
         financial = {
-            "Compra normal sem desconto (R$)": round(regular_value, 2),
-            "Proposta antes do desconto (R$)": round(proposed_value, 2),
-            "Desconto condicional (R$)": round(reduction, 2),
-            "Proposta após desconto (R$)": round(proposed_value - reduction, 2),
+            "Compra normal sem desconto (R$)": round(normal_value, 2),
+            "Proposta antes do desconto (R$)": round(offered_value, 2),
+            "Desconto condicional (R$)": round(saved, 2),
+            "Proposta após desconto (R$)": round(offered_value - saved, 2),
             "Diferença de desembolso (R$)": round(
-                proposed_value - reduction - regular_value, 2
+                offered_value - saved - normal_value, 2
             ),
         }
     return {
         "table": table,
-        "normal_units": required_total,
+        "normal_units": normal_required,
         "proposed_units": used,
-        "extra_units": sum(r["Peças extras para desconto"] for r in records),
+        "extra_units": int(table["Peças extras para desconto"].sum()),
         "remaining_units": limit_units - used,
         "target_units": limit_units,
         "discount_pct": discount_pct,
         "discount_achieved": achieved,
         "normal_fully_covered": normal_fully_covered,
-        "eligible_skus": sum(1 for r in records if r["Motivo"] == "Apto à simulação"),
-        "blocked_skus": sum(1 for r in records if r["Motivo"] != "Apto à simulação"),
-        "proposed_skus": sum(
-            1 for r in records if _number(r["Compra proposta (peças)"], 0) > 0
+        "eligible_skus": len(priority),
+        "blocked_skus": len(records) - len(priority),
+        "proposed_skus": int(
+            (pd.to_numeric(table["Compra proposta (peças)"], errors="coerce")
+             .fillna(0).gt(0)).sum()
+        ),
+        "above_180_skus": int(
+            (pd.to_numeric(table["Cobertura proposta (dias)"], errors="coerce")
+             .fillna(0).gt(180)).sum()
+        ),
+        "above_365_skus": int(
+            (pd.to_numeric(table["Cobertura proposta (dias)"], errors="coerce")
+             .fillna(0).gt(365)).sum()
         ),
         "missing_cost_codes": missing_costs,
         "financial": financial,
