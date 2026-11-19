@@ -2351,6 +2351,29 @@ def render_analise_linha():
     )
 
     products, summary = build_line_analysis(base, period_days, criteria, long_days)
+
+    # Snapshot independente dos file_uploaders: permite usar a mesma Curva ABC
+    # no Planejamento de Pedido durante a sessão, sem inventar classificação.
+    from coverage_planning import make_abc_snapshot
+    try:
+        st.session_state["nexo_abc_snapshot"] = make_abc_snapshot(
+            products, analysis_name, period_days
+        )
+    except ValueError as exc:
+        st.session_state.pop("nexo_abc_snapshot", None)
+        st.warning(f"Curva ABC indisponível para o planejamento: {exc}")
+    else:
+        snapshot = st.session_state["nexo_abc_snapshot"]
+        if snapshot["reliable_prices"]:
+            st.caption(
+                "Curva ABC desta marca disponível no Planejamento de Pedido "
+                "durante esta sessão."
+            )
+        else:
+            st.warning(
+                "A Curva ABC foi calculada com preços ausentes ou provisórios "
+                "e não será aceita na simulação de compras por cobertura."
+            )
     revenue_col = "faturamento_analise"
 
     total_revenue = float(products["faturamento_periodo"].sum())
