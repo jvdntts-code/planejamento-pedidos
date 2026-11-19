@@ -1,16 +1,11 @@
-"""Negociação por meta em peças: sem teto artificial de cobertura.
-
-Primeiro atende necessidades normais por Curva ABC. Depois distribui
-quantidades adicionais por A -> B -> C até tentar atingir a meta do
-fornecedor. Dias de cobertura são resultados informativos da simulação.
-"""
+"""Negociação comercial por quantidade, independente de metas em dias."""
 import math
 import re
 import unicodedata
 
 import pandas as pd
 
-from coverage_planning import product_key
+from coverage_planning import product_key, brand_key
 
 
 CURVE_ORDER = {"A": 0, "B": 1, "C": 2}
@@ -88,10 +83,9 @@ def simulate_discount_negotiation(
 ):
     """Distribui uma META em peças sem teto de dias de cobertura.
 
-    Primeiro atende às necessidades normais na ordem A/B/C. Se a meta
-    permitir, reparte as unidades excedentes entre SKUs com vendas,
-    equilibrando a cobertura relativa à meta *dentro da mesma curva*.
-    Não limita a cobertura máxima: ela é resultado da simulação.
+    Primeiro atende à compra inicial pelo método tradicional (A/B/C),
+    depois distribui as peças extras pela menor cobertura na chegada,
+    sempre dentro da curva prioritária. Não consulta qualquer meta em dias.
     Compra somente embalagens inteiras e nunca passa da meta informada.
     """
     if not isinstance(limit_units, int) or isinstance(limit_units, bool) or limit_units <= 0:
@@ -100,11 +94,10 @@ def simulate_discount_negotiation(
         raise ValueError("O desconto deve estar entre 0 e menos de 100%.")
     required = {
         "Código", "Referência", "Descrição", "Marca", "Curva ABC",
-        "Meta (dias)", "Vendas 90d filiais",
+        "Vendas 90d filiais",
         "Estoque filiais consideradas", "Estoque M20",
         "Lead time (dias)", "Pendência considerada",
         "Embalagem", "Quantidade simulada", "Situação",
-        "Saldo a comprar antes da embalagem",
     }
     missing = required - set(normal.columns)
     if missing:
@@ -123,8 +116,6 @@ def simulate_discount_negotiation(
         lead = _number(row["Lead time (dias)"])
         pack = _number(row["Embalagem"])
         baseline = _number(row["Quantidade simulada"])
-        normal_days = _number(row["Meta (dias)"])
-        raw_need = _number(row["Saldo a comprar antes da embalagem"])
         normal_status = str(row["Situação"])
 
         valid = (
@@ -134,13 +125,12 @@ def simulate_discount_negotiation(
             and all(
                 v is not None and v >= 0
                 for v in (daily_sales90, stock_stores, stock_m20, confirmed,
-                          lead, baseline, raw_need, normal_days)
+                          lead, baseline)
             )
             and daily_sales90 > 0
             and pack is not None and pack >= 1 and pack.is_integer()
             and baseline is not None and baseline.is_integer()
             and int(baseline) % int(pack) == 0
-            and normal_days is not None and normal_days > 0
         )
         daily = daily_sales90 / 90.0 if daily_sales90 and daily_sales90 > 0 else 0.0
         present = (
@@ -178,8 +168,6 @@ def simulate_discount_negotiation(
             "Pendência confirmada": confirmed,
             "Lead time (dias)": lead,
             "Embalagem": int(pack) if pack is not None and pack >= 1 and pack.is_integer() else None,
-            "Meta normal (dias)": normal_days,
-            "Necessidade sem arredondamento": raw_need,
             "Necessidade normal (peças)": int(baseline) if valid else None,
             "Cobertura atual (dias)": present / daily if present is not None and daily > 0 else None,
             "Cobertura na chegada (dias)": arrival / daily if arrival is not None and daily > 0 else None,
@@ -248,7 +236,7 @@ def simulate_discount_negotiation(
                 projected_days = (
                     rec["_arrival"] + rec["_distributed_normal"]
                 ) / rec["Consumo médio diário"]
-                ratio = projected_days / rec["Meta normal (dias)"]
+                ratio = projected_days
                 heapq.heappush(heap, (
                     ratio, -rec["Consumo médio diário"],
                     product_key(rec["Código"]), idx,
@@ -287,7 +275,7 @@ def simulate_discount_negotiation(
                     + rec["_distributed_extra"]
                 ) / rec["Consumo médio diário"]
                 heapq.heappush(heap, (
-                    new_days / rec["Meta normal (dias)"],
+                    new_days,
                     -rec["Consumo médio diário"],
                     product_key(rec["Código"]), chosen,
                 ))
@@ -302,11 +290,8 @@ def simulate_discount_negotiation(
             rec["Peças extras para desconto"] = rec["_distributed_extra"]
             rec["Estoque projetado após compra (peças)"] = rec["_arrival"] + added
             rec["Cobertura proposta (dias)"] = projected_days
-            rec["Dias acima da meta normal"] = max(
-                0.0, projected_days - rec["Meta normal (dias)"]
-            )
-            rec["Excesso de embalagem na compra normal (peças)"] = max(
-                0.0, rec["_normal"] - rec["Necessidade sem arredondamento"]
+            rec["Aumento de cobertura (dias)"] = max(
+                0.0, projected_days - rec["Cobertura na chegada (dias)"]
             )
             rec["Alerta de cobertura"] = (
                 "Acima de 365 dias — avaliar giro e capital"
@@ -329,8 +314,7 @@ def simulate_discount_negotiation(
             rec["Peças extras para desconto"] = 0
             rec["Estoque projetado após compra (peças)"] = None
             rec["Cobertura proposta (dias)"] = None
-            rec["Dias acima da meta normal"] = None
-            rec["Excesso de embalagem na compra normal (peças)"] = None
+            rec["Aumento de cobertura (dias)"] = None
             rec["Alerta de cobertura"] = "Conferir dados"
             rec["Resultado"] = "Fora da distribuição — conferir"
 
@@ -396,3 +380,129 @@ def simulate_discount_negotiation(
         "missing_cost_codes": missing_costs,
         "financial": financial,
     }
+
+
+
+def build_negotiation_inputs(
+    base, needs, order, snapshot, leadtime_days,
+    pending_by_code=None, include_pending=False, include_m20=True
+):
+    """Monta comparação com o pedido tradicional, sem meta de cobertura por curva.
+
+    A quantidade inicial vem da 'Necessidade Antes da Pendencia' do pedido
+    atual, ajustada somente pelas pendências com chegada confirmada.
+    Vendas e estoque para projeção vêm das filiais consideradas; estoque
+    M20 entra apenas uma vez e somente se habilitado.
+    """
+    if not isinstance(snapshot, dict):
+        raise ValueError("Importe uma Curva ABC para simular a negociação.")
+    if snapshot.get("source") != "imported" and not snapshot.get("reliable_prices"):
+        raise ValueError(
+            "A Curva ABC calculada não tem preços válidos. "
+            "Prefira a Curva ABC importada do sistema."
+        )
+    if _number(leadtime_days) is None or leadtime_days < 0:
+        raise ValueError("Lead time inválido.")
+    base_fields = {"codigo", "referencia", "descricao", "marca", "emb_compra", "estoque_M20"}
+    needs_fields = {
+        "Codigo", "Considerada na Necessidade de Compra",
+        "Estoque Atual", "Vendas 90d",
+    }
+    order_fields = {"Codigo", "Necessidade Antes da Pendencia"}
+    for df, fields in (
+        (base, base_fields), (needs, needs_fields), (order, order_fields)
+    ):
+        missing = fields - set(df.columns)
+        if missing:
+            raise ValueError("Colunas ausentes: " + ", ".join(sorted(missing)))
+
+    pending_by_code = pending_by_code or {}
+    report_keys = base["codigo"].map(product_key).tolist()
+    duplicated_base = {
+        key for key in report_keys if key and report_keys.count(key) > 1
+    }
+    stores = needs.loc[
+        needs["Considerada na Necessidade de Compra"].eq("Sim")
+    ].copy()
+    stores["_code"] = stores["Codigo"].map(product_key)
+    grouped = dict(iter(stores.groupby("_code")))
+    order_index = order.copy()
+    order_index["_code"] = order_index["Codigo"].map(product_key)
+    repeated_orders = set(
+        order_index.loc[order_index["_code"].duplicated(keep=False), "_code"]
+    )
+    orders = order_index.drop_duplicates("_code").set_index("_code")
+    current_brand = brand_key(snapshot.get("brand"))
+    curves = snapshot.get("curves", {})
+    rows = []
+    for _, item in base.iterrows():
+        code = product_key(item["codigo"])
+        brand = str(item["marca"]).strip()
+        curve = (
+            curves.get(code)
+            if current_brand and brand_key(brand) == current_brand
+            else None
+        )
+        frame = grouped.get(code)
+        sales90 = 0.0
+        stock_stores = 0.0
+        invalid = False
+        if frame is not None:
+            for _, store in frame.iterrows():
+                stock = _number(store["Estoque Atual"])
+                sales = _number(store["Vendas 90d"])
+                if stock is None or sales is None or stock < 0 or sales < 0:
+                    invalid = True
+                    break
+                stock_stores += stock
+                sales90 += sales
+
+        stock_m20 = _number(item["estoque_M20"])
+        pack = _number(item["emb_compra"])
+        if stock_m20 is None or stock_m20 < 0:
+            invalid = True
+        if pack is None or pack < 1 or not pack.is_integer():
+            invalid = True
+        pending_raw = _number(pending_by_code.get(code, 0))
+        if pending_raw is None or pending_raw < 0:
+            invalid = True
+        pending = pending_raw if include_pending and pending_raw is not None else 0.0
+        raw_buy = None
+        if code in orders.index and code not in repeated_orders:
+            raw_buy = _number(orders.loc[code, "Necessidade Antes da Pendencia"])
+        if raw_buy is None or raw_buy < 0:
+            invalid = True
+        if code in duplicated_base or code in repeated_orders or not code:
+            status = "CONFERIR CÓDIGO DUPLICADO/AUSENTE"
+        elif curve not in CURVE_ORDER:
+            status = "SEM CURVA ABC VERIFICADA"
+        elif invalid:
+            status = "CONFERIR SALDOS/EMBALAGEM/PEDIDO"
+        elif sales90 <= 0:
+            status = "SEM VENDAS 90D NAS FILIAIS CONSIDERADAS"
+        else:
+            status = "SIMULAÇÃO COM COMPRA" if raw_buy > 0 else "COBERTURA ATENDIDA"
+
+        if status in ("SIMULAÇÃO COM COMPRA", "COBERTURA ATENDIDA"):
+            net = max(0.0, raw_buy - pending)
+            # Arredonda pedido inicial para embalagens completas.
+            qty = int(math.ceil(net / pack - 1e-10) * pack)
+        else:
+            qty = None
+
+        rows.append({
+            "Código": item["codigo"],
+            "Referência": item["referencia"],
+            "Descrição": item["descricao"],
+            "Marca": brand,
+            "Curva ABC": curve if curve else "Não identificada",
+            "Vendas 90d filiais": sales90,
+            "Estoque filiais consideradas": stock_stores,
+            "Estoque M20": stock_m20 if include_m20 else 0.0,
+            "Lead time (dias)": float(leadtime_days),
+            "Pendência considerada": pending,
+            "Embalagem": pack,
+            "Quantidade simulada": qty,
+            "Situação": status,
+        })
+    return pd.DataFrame(rows)

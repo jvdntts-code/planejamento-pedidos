@@ -2,7 +2,8 @@ import unittest
 
 import pandas as pd
 
-from discount_planning import load_unit_costs, simulate_discount_negotiation
+from discount_planning import (build_negotiation_inputs, load_unit_costs,
+                               simulate_discount_negotiation)
 
 
 def make_plan():
@@ -51,6 +52,87 @@ def new_item(code, curve, package, regular=0, daily=1, store=0, m20=0, lead=0):
 
 
 class DiscountPlanningTests(unittest.TestCase):
+    def test_discount_requires_no_coverage_targets_or_normal_day_fields(self):
+        plan = make_plan().drop(columns=[
+            "Meta (dias)", "Saldo a comprar antes da embalagem"
+        ])
+        result = simulate_discount_negotiation(plan, limit_units=34500)
+        self.assertEqual(result["proposed_units"], 34500)
+        self.assertEqual(result["remaining_units"], 0)
+        self.assertNotIn("Meta normal (dias)", result["table"].columns)
+        self.assertNotIn("Dias acima da meta normal", result["table"].columns)
+        self.assertIn("Cobertura proposta (dias)", result["table"].columns)
+
+    def test_ignores_any_abc_day_targets_from_old_planner(self):
+        a = make_plan()
+        b = make_plan()
+        a["Meta (dias)"] = [10, 10, 10]
+        b["Meta (dias)"] = [1000, 1000, 1000]
+        one = simulate_discount_negotiation(a, limit_units=100)["table"]
+        other = simulate_discount_negotiation(b, limit_units=100)["table"]
+        self.assertEqual(
+            one["Compra proposta (peças)"].tolist(),
+            other["Compra proposta (peças)"].tolist(),
+        )
+
+    def test_builds_purchase_input_from_existing_order_without_day_targets(self):
+        base = pd.DataFrame([
+            {"codigo": "101", "referencia": "AA", "descricao": "Peça A",
+             "marca": "VOX", "emb_compra": 6, "estoque_M20": 10},
+            {"codigo": "202", "referencia": "BB", "descricao": "Peça B",
+             "marca": "VOX", "emb_compra": 2, "estoque_M20": 20},
+        ])
+        branches = pd.DataFrame([
+            {"Codigo": "101", "Considerada na Necessidade de Compra": "Sim",
+             "Estoque Atual": 30, "Vendas 90d": 90},
+            {"Codigo": "101", "Considerada na Necessidade de Compra": "Não",
+             "Estoque Atual": 1, "Vendas 90d": 900},
+            {"Codigo": "202", "Considerada na Necessidade de Compra": "Sim",
+             "Estoque Atual": 12, "Vendas 90d": 0},
+        ])
+        order = pd.DataFrame([
+            {"Codigo": "101", "Necessidade Antes da Pendencia": 20},
+            {"Codigo": "202", "Necessidade Antes da Pendencia": 4},
+        ])
+        snapshot = {"brand": "VOX", "source": "imported",
+                    "curves": {"101": "A", "202": "B"}}
+        plan = build_negotiation_inputs(
+            base, branches, order, snapshot, leadtime_days=30,
+            pending_by_code={"101": 8}, include_pending=True,
+        )
+        sku = plan.set_index("Código")
+        self.assertEqual(sku.at["101", "Quantidade simulada"], 12)
+        self.assertEqual(sku.at["101", "Pendência considerada"], 8)
+        self.assertEqual(sku.at["101", "Vendas 90d filiais"], 90)
+        self.assertEqual(sku.at["101", "Estoque filiais consideradas"], 30)
+        self.assertEqual(sku.at["202", "Situação"],
+                         "SEM VENDAS 90D NAS FILIAIS CONSIDERADAS")
+        simulated = simulate_discount_negotiation(plan, limit_units=100)
+        one = simulated["table"].set_index("Código").loc["101"]
+        self.assertAlmostEqual(one["Cobertura atual (dias)"], 40)
+        self.assertAlmostEqual(one["Cobertura na chegada (dias)"], 18)
+
+    def test_no_confirmed_pendencies_are_not_counted_or_deducted(self):
+        base = pd.DataFrame([{
+            "codigo": "101", "referencia": "AA", "descricao": "Peça A",
+            "marca": "VOX", "emb_compra": 6, "estoque_M20": 0
+        }])
+        stores = pd.DataFrame([{
+            "Codigo": "101", "Considerada na Necessidade de Compra": "Sim",
+            "Estoque Atual": 10, "Vendas 90d": 90
+        }])
+        order = pd.DataFrame([{
+            "Codigo": "101", "Necessidade Antes da Pendencia": 20
+        }])
+        snapshot = {"brand": "VOX", "source": "imported",
+                    "curves": {"101": "A"}}
+        plan = build_negotiation_inputs(
+            base, stores, order, snapshot, leadtime_days=0,
+            pending_by_code={"101": 8}, include_pending=False,
+        )
+        self.assertEqual(plan.iloc[0]["Quantidade simulada"], 24)
+        self.assertEqual(plan.iloc[0]["Pendência considerada"], 0)
+
     def test_exact_threshold_enables_discount_only_at_100_percent(self):
         normal = make_plan()
         result = simulate_discount_negotiation(
