@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from coverage_planning import build_coverage_plan, make_abc_snapshot
+from coverage_planning import build_coverage_plan, make_abc_snapshot, import_abc_snapshot
 
 
 def source_products():
@@ -66,6 +66,58 @@ def branches():
 class CoverageByCurveTests(unittest.TestCase):
     def setUp(self):
         self.snapshot = make_abc_snapshot(source_products(), "VOX", 90)
+
+    def test_imports_real_report_header_shape(self):
+        raw = pd.DataFrame([
+            {"Codigo": 101, "Numero Fabricante": "AA", "Marca": "VOX",
+             "Vendas (90 dias)": 100, "Preço Venda": 0, "Curva ABC": "A"},
+            {"Codigo": 202, "Numero Fabricante": "BB", "Marca": "VOX",
+             "Vendas (90 dias)": 30, "Preço Venda": 0, "Curva ABC": "C"},
+        ])
+        snapshot = import_abc_snapshot(raw)
+        self.assertEqual(snapshot["brand"], "VOX")
+        self.assertEqual(snapshot["source"], "imported")
+        self.assertEqual(snapshot["curves"], {"101": "A", "202": "C"})
+        result = build_coverage_plan(
+            report(), branches(), snapshot, {"A": 90, "B": 60, "C": 30}, 30
+        )
+        self.assertEqual(result.iloc[0]["Quantidade simulada"], 114)
+        self.assertEqual(result.iloc[1]["Situação"], "SEM VENDAS 90D NAS FILIAIS CONSIDERADAS")
+
+    def test_duplicate_same_curve_is_counted_once(self):
+        raw = pd.DataFrame([
+            {"Codigo": 465804, "Marca": "VOX", "Curva ABC": "C", "Preço Venda": 0},
+            {"Codigo": 465804, "Marca": "VOX", "Curva ABC": "C", "Preço Venda": 262.9},
+        ])
+        snapshot = import_abc_snapshot(raw)
+        self.assertEqual(snapshot["curves"], {"465804": "C"})
+        self.assertEqual(snapshot["duplicates"], ["465804"])
+        self.assertEqual(snapshot["total_file_rows"], 2)
+
+    def test_duplicate_conflicting_curve_blocks(self):
+        raw = pd.DataFrame([
+            {"Codigo": 1, "Marca": "VOX", "Curva ABC": "A"},
+            {"Codigo": 1, "Marca": "VOX", "Curva ABC": "B"},
+        ])
+        with self.assertRaisesRegex(ValueError, "divergente"):
+            import_abc_snapshot(raw)
+
+    def test_multiple_brands_are_not_combined(self):
+        raw = pd.DataFrame([
+            {"Codigo": 1, "Marca": "VOX", "Curva ABC": "A"},
+            {"Codigo": 2, "Marca": "ASX", "Curva ABC": "C"},
+        ])
+        with self.assertRaisesRegex(ValueError, "mais de uma marca"):
+            import_abc_snapshot(raw)
+
+    def test_ignores_missing_curves_without_guessing(self):
+        raw = pd.DataFrame([
+            {"Codigo": 1, "Marca": "VOX", "Curva ABC": "B"},
+            {"Codigo": 2, "Marca": "VOX", "Curva ABC": None},
+        ])
+        snapshot = import_abc_snapshot(raw)
+        self.assertEqual(snapshot["curves"], {"1": "B"})
+        self.assertEqual(snapshot["missing_curves"], 1)
 
     def test_defaults_and_leadtime_do_not_double_count(self):
         result = build_coverage_plan(
