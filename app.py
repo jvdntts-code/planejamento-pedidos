@@ -588,6 +588,50 @@ with st.sidebar:
         help='Quando marcado, desconta as quantidades importadas no arquivo de pendências.'
     )
 
+    with st.expander('📅 Cobertura por Curva ABC (dias)', expanded=False):
+        simular_abc = st.checkbox(
+            'Simular compra por cobertura de estoque',
+            value=False,
+            key='plan_abc_ativar',
+            help=(
+                'Cria uma simulação separada usando a curva calculada na Análise de Linha. '
+                'Não modifica o pedido do método atual.'
+            ),
+        )
+        dias_abc = {
+            'A': st.number_input(
+                'Curva A — dias de cobertura',
+                min_value=1, max_value=3650, value=90, step=5,
+                key='plan_abc_dias_a',
+            ),
+            'B': st.number_input(
+                'Curva B — dias de cobertura',
+                min_value=1, max_value=3650, value=60, step=5,
+                key='plan_abc_dias_b',
+            ),
+            'C': st.number_input(
+                'Curva C — dias de cobertura',
+                min_value=1, max_value=3650, value=30, step=5,
+                key='plan_abc_dias_c',
+            ),
+        }
+        pendencia_antes_entrega = st.checkbox(
+            'Incluir pendências confirmadas para chegada até a reposição',
+            value=False,
+            key='plan_abc_incluir_pend',
+            disabled=not abater_pendencia,
+            help=(
+                'Marque somente se você confirmou que as pendências importadas '
+                'chegarão até a data estimada da nova compra. '
+                'A planilha de pendências não informa previsão de chegada.'
+            ),
+        )
+        st.caption(
+            'As metas são medidas a partir da chegada estimada da mercadoria. '
+            'O lead time geral acima também será considerado. '
+            'A classificação ABC vem da Análise de Linha e não é presumida.'
+        )
+
     with st.expander('Validação dos mínimos'):
         pct_m20 = st.number_input(
             'Percentual base do mínimo M20',
@@ -833,6 +877,7 @@ for _, r in base.iterrows():
             'Minimo Cadastrado':minimo,
             'Minimo Validado':min_valid,
             'Vendas 30d':v30,
+            'Vendas 90d':v90,
             'Filial Abastecida pelo Minimo Cadastrado':'Sim' if estoque >= minimo else 'Não',
             'Compra Bloqueada pelo Minimo Cadastrado':'Sim' if filial_abastecida_minimo else 'Não',
             'Qtd Comprar Antes do Bloqueio':buy_calculado_original,
@@ -954,6 +999,112 @@ configuracao = pd.DataFrame({
 
 st.markdown('---')
 st.subheader('Resultado')
+
+if simular_abc:
+    st.markdown('### Simulação de compra por dias de cobertura')
+    st.caption(
+        f"Metas editáveis: Curva A {dias_abc['A']} dias · "
+        f"Curva B {dias_abc['B']} dias · Curva C {dias_abc['C']} dias. "
+        "Esta análise é independente do cálculo tradicional abaixo."
+    )
+    snapshot = st.session_state.get('nexo_abc_snapshot')
+    if not snapshot:
+        st.warning(
+            'A Curva ABC por faturamento ainda não está disponível nesta sessão. '
+            'Acesse Análise de Linha, importe Lista de Produtos por Marca e '
+            'Vendas Produtos, confira a marca e a curva e depois volte '
+            'ao Planejamento de Pedido. Nenhuma curva será estimada sem dados.'
+        )
+    else:
+        from coverage_planning import build_coverage_plan
+        try:
+            simulacao_abc = build_coverage_plan(
+                base, necessidades, snapshot, dias_abc, leadtime_dias,
+                pend_by_code=pend_map,
+                include_pending=bool(pendencia_antes_entrega and abater_pendencia and pend_up),
+            )
+        except ValueError as exc:
+            st.error(f'Não foi possível realizar a simulação ABC: {exc}')
+        else:
+            st.caption(
+                f"Curva obtida da marca **{snapshot['brand']}** "
+                f"(faturamento dos últimos {snapshot['period_days']} dias na Análise de Linha). "
+                'Vendas por filial: histórico de 90 dias do Planejamento.'
+            )
+            elegiveis_abc = simulacao_abc['Situação'].isin([
+                'SIMULAÇÃO COM COMPRA', 'COBERTURA ATENDIDA',
+                'SEM VENDAS 90D NAS FILIAIS CONSIDERADAS'
+            ])
+            comprar_abc = simulacao_abc['Situação'].eq('SIMULAÇÃO COM COMPRA')
+            nao_classificados = simulacao_abc['Situação'].eq('SEM CURVA ABC VERIFICADA')
+            inconsistentes = simulacao_abc['Situação'].str.startswith('CONFERIR')
+            qa, qb, qc, qd = st.columns(4)
+            qa.metric('SKUs com curva e dados válidos', int(elegiveis_abc.sum()))
+            qb.metric('SKUs com compra simulada', int(comprar_abc.sum()))
+            qc.metric('Unidades simuladas', int(simulacao_abc.loc[comprar_abc, 'Quantidade simulada'].sum()))
+            qd.metric('Sem curva verificada', int(nao_classificados.sum()))
+            if nao_classificados.any() or inconsistentes.any():
+                st.warning(
+                    f"{int(nao_classificados.sum())} produto(s) sem curva verificada e "
+                    f"{int(inconsistentes.sum())} com dados a conferir ficaram fora "
+                    'da quantidade simulada. Não os trate como compra zero.'
+                )
+            if leadtime_dias == 0:
+                st.info(
+                    'Lead time geral está em 0 dia. Informe o prazo real de reposição '
+                    'na configuração lateral para considerar o consumo até a chegada.'
+                )
+            st.caption(
+                'Para cada filial considerada: máx(0, vendas90/90 × '
+                '(dias da curva + lead time) − estoque da filial). '
+                'O NEXO soma as necessidades, desconta o estoque M20 uma só vez '
+                'e, somente se confirmado, as pendências. Depois arredonda '
+                'pela embalagem. Não usa vendas M30 adicionais, nem mínimos '
+                'cadastrados, nem bloqueio de filial pelo mínimo neste cenário. '
+                'Filiais excluídas não entram na simulação.'
+            )
+            st.caption(
+                'A simulação pressupõe que o saldo da M20 possa atender '
+                'às necessidades consideradas. Não avalia transferências, '
+                'sazonalidade ou datas individuais de entrega.'
+            )
+            compra_visivel = simulacao_abc.loc[comprar_abc, [
+                'Código', 'Referência', 'Descrição', 'Marca', 'Curva ABC',
+                'Meta (dias)', 'Vendas 90d filiais', 'Estoque M20',
+                'Quantidade simulada'
+            ]]
+            if compra_visivel.empty:
+                st.info('Nenhum produto classificado gerou compra nesta simulação.')
+            else:
+                st.dataframe(compra_visivel, use_container_width=True, hide_index=True)
+            with st.expander('Conferir memória de cálculo e produtos não classificados', expanded=False):
+                st.dataframe(simulacao_abc, use_container_width=True, hide_index=True)
+            parametros_abc = pd.DataFrame({
+                'Parâmetro': [
+                    'Curva A (dias)', 'Curva B (dias)', 'Curva C (dias)',
+                    'Lead time geral (dias)', 'Curva obtida da marca',
+                    'Período da curva (dias)', 'Pendências consideradas',
+                    'Natureza'
+                ],
+                'Valor': [
+                    dias_abc['A'], dias_abc['B'], dias_abc['C'],
+                    leadtime_dias, snapshot['brand'], snapshot['period_days'],
+                    'Sim, confirmadas' if pendencia_antes_entrega and abater_pendencia and pend_up else 'Não',
+                    'Simulação para revisão; não substitui o cálculo atual'
+                ],
+            })
+            st.download_button(
+                'Baixar simulação ABC e memória de cálculo (.xlsx)',
+                data=xlsx_bytes({
+                    'Simulacao ABC': simulacao_abc,
+                    'Parametros ABC': parametros_abc,
+                }),
+                file_name='simulacao_compra_cobertura_abc.xlsx',
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                key='plan_abc_download_simulacao',
+                use_container_width=False,
+            )
+
 
 c1,c2,c3,c4 = st.columns(4)
 c1.metric('Produtos analisados', len(final))
