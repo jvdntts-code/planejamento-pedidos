@@ -313,18 +313,18 @@ def render_management_overview(products, period_days, analysis_name, brl, intege
             "Confira os saldos antes de utilizá-los para decisões de compra."
         )
 
-    render_decision_center(products, period_days, integer)
-
-    g1, g2 = st.columns([1.1, 1])
-    with g1:
+    g1, g2 = st.columns([1.2, 1])
+    with g1, st.container(border=True):
         st.markdown("#### Distribuição dos produtos")
-        if not data["status_chart"].empty:
+        if data["status_chart"].empty:
+            st.caption("Sem produtos para apresentar.")
+        else:
             chart = {
-                "height": {"step": 26},
-                "mark": {"type": "bar", "cornerRadiusEnd": 4},
+                "height": {"step": 28},
+                "mark": {"type": "bar", "cornerRadiusEnd": 4, "color": "#087D85"},
                 "encoding": {
                     "y": {"field": "Situação", "type": "nominal", "title": None,
-                          "sort": "-x", "axis": {"labelLimit": 190}},
+                          "sort": "-x", "axis": {"labelLimit": 160}},
                     "x": {"field": "Produtos", "type": "quantitative",
                           "title": "Quantidade", "axis": {"tickMinStep": 1}},
                     "tooltip": [{"field": "Situação"}, {"field": "Produtos"}],
@@ -332,7 +332,7 @@ def render_management_overview(products, period_days, analysis_name, brl, intege
                 "view": {"stroke": None},
             }
             st.vega_lite_chart(data["status_chart"], chart, use_container_width=True)
-    with g2:
+    with g2, st.container(border=True):
         st.markdown("#### Linhas com maior faturamento")
         if data["line_ranking"].empty:
             st.caption("Sem linhas para apresentar.")
@@ -342,7 +342,5 @@ def render_management_overview(products, period_days, analysis_name, brl, intege
             ).copy()
             ranking["Faturamento"] = ranking["Faturamento"].apply(brl)
             st.dataframe(ranking, hide_index=True, use_container_width=True)
-    st.caption(
-        "Os destaques mostram quantidades e classificações do próprio relatório. "
-        "Sem julgamento automático de que a marca é saudável ou está em excesso."
-    )
+
+    render_decision_center(products, period_days, integer)
