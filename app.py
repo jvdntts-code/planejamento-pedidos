@@ -21,58 +21,58 @@ AUTH_STATE = require_login()
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
-html, body, .stApp, .stApp button, .stApp input, .stApp textarea,
-.stApp select, .stApp label, [data-testid="stSidebar"] {
-    font-family: 'DM Sans', system-ui, -apple-system, sans-serif !important;
+.stApp, .stApp button, .stApp input, .stApp label {font-family: "DM Sans", system-ui, sans-serif;}
+.block-container {max-width: 1530px; padding: 2.75rem 2.5rem 3rem;}
+h1, h2, h3, h4 {letter-spacing: -.035em; font-weight: 750;}
+[data-testid="stSidebar"] {border-right: 1px solid #20394a;}
+[data-testid="stSidebarContent"] {min-height: 100vh;}
+[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {padding-inline: 1rem;}
+.nexo-sidebar-spacer {min-height: 1rem;}
+.nexo-sidebar-account {font-size: .8rem; color: #adbfcd;}
+.nexo-brand {display: flex; align-items: center; gap: .7rem; padding: .6rem 0 1.2rem;
+    margin-bottom: .6rem; border-bottom: 1px solid #30495c;}
+.nexo-brand-mark {display: grid; place-items: center; width: 2.35rem; height: 2.35rem;
+    border-radius: .65rem; background: #31d4bc; color: #102b3b; font-size: 1.1rem;}
+.nexo-title {font-size: 1.3rem; line-height: 1; font-weight: 800; letter-spacing: .04em;}
+.nexo-by {display: block; margin-top: .25rem; color: #adbfcd; font-size: .7rem;}
+.nexo-menu-label {color: #adbfcd; font-size: .75rem; font-weight: 700; letter-spacing: .08em;}
+[data-testid="stSidebar"] .st-key-nexo_pagina [role="radiogroup"] {gap: .2rem;}
+[data-testid="stSidebar"] .st-key-nexo_pagina label {
+    min-height: 2.6rem; padding: .45rem .65rem; border: 1px solid transparent;
+    border-radius: .55rem; transition: background .15s ease;
 }
-.block-container {max-width: 1480px; padding-top: 1.6rem; padding-bottom: 3rem;}
-h1, h2, h3 {letter-spacing: -.035em !important; font-weight: 750 !important;}
-h1 {font-size: clamp(1.8rem, 3vw, 2.35rem) !important;}
-h2 {font-size: 1.45rem !important;}
-h3 {font-size: 1.15rem !important;}
-[data-testid="stSidebar"] {border-right: 1px solid rgba(128,128,128,.15);}
-section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
-    min-height: 100vh; display: flex; flex-direction: column;
+[data-testid="stSidebar"] .st-key-nexo_pagina label:hover {background: #203b50;}
+[data-testid="stSidebar"] .st-key-nexo_pagina label:has(input:checked) {
+    border-color: #3f8c93; background: #214959;
 }
-.nexo-sidebar-spacer {flex:1 1 auto; min-height: 20vh;}
-.nexo-sidebar-account {font-size:.78rem; opacity:.7; margin:0 0 8px 2px;}
-.nexo-brand {padding: 10px 4px 20px; border-bottom:1px solid rgba(128,128,128,.16); margin-bottom:16px;}
-.nexo-title {font-size:1.7rem; line-height:1; font-weight:800; letter-spacing:-.065em;}
-.nexo-by {font-size:.72rem; opacity:.62; margin-left:7px; letter-spacing:.02em;}
-.nexo-subtitle {font-size:.75rem; opacity:.7; margin-top:10px;}
-[data-testid="stSidebar"] [role="radiogroup"] {gap: .25rem;}
-[data-testid="stSidebar"] [role="radiogroup"] label {
-    padding: .5rem .6rem; border-radius: 9px; transition: background .15s ease;
+[data-testid="stSidebar"] .st-key-nexo_pagina label:has(input:focus-visible) {
+    outline: 2px solid #55e3ce; outline-offset: 2px;
 }
-[data-testid="stSidebar"] [role="radiogroup"] label:hover {background:rgba(128,128,128,.09);}
-[data-testid="stMetric"] {
-    border:1px solid rgba(128,128,128,.17); border-radius:13px;
-    padding:16px 18px; background:rgba(128,128,128,.035);
+[data-testid="stSidebar"] .st-key-nexo_pagina label p {font-size: .875rem; font-weight: 600;}
+[data-testid="stMain"] [data-testid="stMetric"] {
+    height: 100%; padding: 1rem 1.1rem; border: 1px solid #dde6ed;
+    border-top: 3px solid #087d85; border-radius: .75rem; background: #fff;
+    box-shadow: 0 2px 5px #172f4610;
 }
-[data-testid="stMetricLabel"] {font-size:.83rem; opacity:.8;}
-[data-testid="stMetricValue"] {font-weight:750; letter-spacing:-.04em;}
-.stButton > button, .stDownloadButton > button {
-    border-radius:9px !important; box-shadow:none !important; font-weight:650 !important;
+[data-testid="stMain"] [data-testid="stMetricLabel"] p {font-size: .83rem; color: #465971;}
+[data-testid="stMain"] [data-testid="stMetricValue"] {font-weight: 750; letter-spacing: -.04em;}
+[data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"],
+[data-testid="stMain"] [data-testid="stExpander"], [data-testid="stForm"] {
+    border-radius: .75rem;
 }
-div[data-testid="stExpander"], [data-testid="stForm"] {
-    border:1px solid rgba(128,128,128,.17); border-radius:12px; box-shadow:none;
-}
-[data-testid="stDataFrame"] {border-radius:10px; overflow:hidden;}
-[data-testid="stTabs"] [role="tablist"] {gap:.4rem;}
-[data-testid="stTabs"] button[role="tab"] {font-weight:600;}
-.nexo-hero {padding:12px 0 24px; margin-bottom:18px; border-bottom:1px solid rgba(128,128,128,.16);}
-.nexo-hero h1 {margin:0; font-size:2.45rem !important; letter-spacing:-.065em !important;}
-.nexo-hero p {margin:9px 0 0; opacity:.7; font-size:.94rem;}
-.nexo-eyebrow {font-size:.72rem; letter-spacing:.12em; font-weight:750; opacity:.65; margin-bottom:10px;}
-.nexo-card {padding:21px 22px; border:1px solid rgba(128,128,128,.17); border-radius:14px;
-    background:rgba(128,128,128,.025); min-height:150px; margin-bottom:12px;}
-.nexo-card-title {font-weight:750; font-size:1.03rem; letter-spacing:-.02em; margin-bottom:10px;}
-.nexo-card-text {opacity:.72; font-size:.88rem; line-height:1.6;}
-.nexo-section-caption {opacity:.7; font-size:.87rem; margin-bottom:16px;}
+.stButton > button, .stDownloadButton > button {border-radius: .55rem; font-weight: 650;}
+[data-testid="stDataFrame"] {border-radius: .65rem; overflow: hidden;}
+[data-testid="stTabs"] [role="tablist"] {gap: .55rem;}
+[data-testid="stTabs"] button[role="tab"] {font-weight: 650;}
+.nexo-hero {padding: 2rem; border-radius: 1rem; color: #fff;
+    background: linear-gradient(105deg, #10283b, #194c5e);
+    border-bottom: 4px solid #31d4bc; margin-bottom: .55rem;}
+.nexo-hero h1 {margin: 0; padding: 0; color: #fff; font-size: clamp(1.75rem, 4vw, 2.8rem);}
+.nexo-hero p {margin: .45rem 0 0; color: #d4e3ea; font-size: .95rem;}
+.nexo-home-title {font-size: 1.05rem; font-weight: 750; margin-bottom: .25rem;}
 @media (max-width: 768px) {
-    .block-container {padding:1rem .8rem 2rem;}
-    .nexo-hero h1 {font-size:1.95rem !important;}
-    .nexo-card {min-height:0; padding:17px;}
+    .block-container {padding: 2.65rem .8rem 2rem;}
+    .nexo-hero {padding: 1.15rem;}
 }
 </style>
 """, unsafe_allow_html=True)
@@ -80,14 +80,13 @@ div[data-testid="stExpander"], [data-testid="stForm"] {
 st.sidebar.markdown(
     """
     <div class="nexo-brand">
+        <span class="nexo-brand-mark" aria-hidden="true">◆</span>
         <div><span class="nexo-title">NEXO</span><span class="nexo-by">by JVN</span></div>
-        <div class="nexo-subtitle">Gestão • Planejamento • Inteligência</div>
     </div>
+    <div class="nexo-menu-label">MÓDULOS</div>
     """,
     unsafe_allow_html=True,
 )
-
-st.sidebar.markdown("### Módulos")
 
 IS_ADMIN = is_legacy_owner()
 MENU_ITEMS = [
@@ -116,62 +115,39 @@ def render_inicio():
     st.markdown(
         """
         <div class="nexo-hero">
-            <div class="nexo-eyebrow">CENTRAL DE GESTÃO</div>
-            <h1>NEXO <span style="font-size:.9rem;opacity:.55;letter-spacing:0">by JVN</span></h1>
-            <p>Comece pela origem dos dados. Escolha o relatório e veja o que pode ser analisado, sem procurar planilhas por todo o sistema.</p>
+            <h1>Central de compras</h1>
+            <p>Estoque, abastecimento e pedidos em um só lugar.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    st.markdown("### Qual informação você quer analisar?")
-    st.caption(
-        "Cada caminho tem uma importação própria porque os arquivos possuem formatos "
-        "diferentes. Os indicadores aparecem no módulo correspondente após o processamento."
-    )
     caminhos = [
-        (
-            "Análise de Linha", "Lista de Produtos por Marca + Vendas Produtos (preços)",
-            "Cobertura, Curva ABC, rupturas, itens sem giro e projeção de estoque."
-        ),
-        (
-            "Planejamento de Pedido", "Análise parcial de itens do pedido de compra",
-            "Necessidade de reposição por filial, condições e quantidade sugerida."
-        ),
-        (
-            "Análise de Sell-out", "Relatórios mensais de vendas",
-            "Variação de vendas, desempenho por loja e marca, evolução por período."
-        ),
-        (
-            "Análise de Pendências", "Relação geral de pendências",
-            "Atrasos, pendências críticas, marcas e ajustes necessários."
-        ),
-        (
-            "Gestão de Pedidos", "Pedidos de fornecedores em PDF",
-            "Pedidos registrados, fornecedores, recebimentos e histórico."
-        ),
+        ("Análise de Linha", "Cobertura, curva ABC, rupturas e Central de Atenção."),
+        ("Planejamento de Pedido", "Reposição por filial e quantidade sugerida."),
+        ("Análise de Sell-out", "Evolução de vendas por período, loja e marca."),
+        ("Análise de Pendências", "Atrasos e pendências por marca."),
+        ("Gestão de Pedidos", "Pedidos em PDF, fornecedores e recebimentos."),
     ]
-    for start in range(0, len(caminhos), 2):
-        cols = st.columns(2, gap="medium")
-        for col, (nome, origem, resultado) in zip(cols, caminhos[start:start + 2]):
+    if IS_ADMIN:
+        caminhos.append(("Minhas Tarefas", "Agenda diária e prazos de acompanhamento."))
+
+    for start in range(0, len(caminhos), 3):
+        cols = st.columns(3)
+        for col, (nome, descricao) in zip(cols, caminhos[start:start + 3]):
             with col:
                 with st.container(border=True):
-                    st.markdown(f"**{nome}**")
-                    st.caption(f"**Importação:** {origem}")
-                    st.write(resultado)
+                    st.markdown(
+                        f'<div class="nexo-home-title">{nome}</div>',
+                        unsafe_allow_html=True,
+                    )
+                    st.caption(descricao)
                     st.button(
-                        "Abrir importação e análise",
-                        key=f"inicio_ir_{start}_{nome}",
+                        "Abrir",
+                        key=f"inicio_ir_{nome}",
                         on_click=_abrir_modulo,
                         args=(nome,),
                         use_container_width=True,
                     )
-    if IS_ADMIN:
-        st.caption("Minhas Tarefas continua disponível no menu lateral.")
-    st.info(
-        "Os relatórios não são intercambiáveis entre módulos. "
-        "Dados financeiros e classificações só são confiáveis quando a importação "
-        "contém os campos necessários e o período de vendas está atualizado."
-    )
 
 
 def render_em_construcao(titulo, descricao):

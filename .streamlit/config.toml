@@ -4,3 +4,17 @@ toolbarMode = "viewer"
 [server]
 enableXsrfProtection = true
 enableCORS = true
+
+[theme]
+base = "light"
+primaryColor = "#087D85"
+backgroundColor = "#F2F6FA"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#182C43"
+font = "sans serif"
+
+[theme.sidebar]
+primaryColor = "#55E3CE"
+backgroundColor = "#122B3D"
+secondaryBackgroundColor = "#233E51"
+textColor = "#EDF5FA"
